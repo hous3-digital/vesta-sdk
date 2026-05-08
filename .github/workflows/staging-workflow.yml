@@ -111,6 +111,10 @@ jobs:
           fetch-depth: 0
           # persist-credentials true (padrão) para semantic-release commitar package.json
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.10.0"
+
       - name: Install release dependencies
         run: |
           cd app
