@@ -1,0 +1,21 @@
+name: release-workflow
+
+on:
+  workflow_run:
+    workflows: ["staging-workflow"]
+    types: ["completed"]
+  workflow_dispatch:
+
+permissions:
+  pull-requests: write
+  contents: write
+  repository-projects: write
+
+jobs:
+  release:
+    permissions:
+      pull-requests: write
+      contents: write
+      repository-projects: write
+    uses: hous3-digital/shared-workflows/.github/workflows/shared-release.yml@v1.24.1
+    secrets: inherit

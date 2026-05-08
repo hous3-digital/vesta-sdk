@@ -1,0 +1,302 @@
+name: main-workflow
+
+on:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+jobs:
+  install:
+    name: Install
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - run: cd app && yarn
+
+      - name: Upload node_modules
+        uses: actions/upload-artifact@v7
+        with:
+          name: node_modules
+          path: app/node_modules
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: install
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - run: |
+          cd app
+          yarn
+          yarn lint
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: install
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - run: |
+          cd app
+          yarn
+          yarn audit --level high --groups dependencies
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: install
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - run: |
+          cd app
+          yarn
+          yarn build
+          yarn test
+
+  confirm-release:
+    name: Confirm Release
+    runs-on: ubuntu-latest
+    needs: [lint, security-scan, test]
+    outputs:
+      release_version: ${{ steps.semantic.outputs.release_version }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          # persist-credentials true (padrão) para semantic-release commitar package.json
+
+      - name: Install release dependencies
+        run: |
+          cd app
+          yarn install --frozen-lockfile
+
+      - name: Release
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd app
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          npx semantic-release
+          
+          # Captura a versão criada pela release
+          VERSION=$(node -p "require('./package.json').version")
+          echo "release_version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Released version: $VERSION"
+
+  publish:
+    name: Publish Package
+    runs-on: ubuntu-latest
+    needs: confirm-release
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          # persist-credentials mantido como true (padrão) para permitir git fetch
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@hous3-digital"
+
+      - name: Get version from release or tag
+        id: get_version
+        env:
+          RELEASE_VERSION: ${{ needs.confirm-release.outputs.release_version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Use version from confirm-release job
+          VERSION="$RELEASE_VERSION"
+
+          if [ -z "$VERSION" ]; then
+            # Fallback: get from tag if output is empty (exclude staging tags)
+            git fetch --tags
+            LATEST_TAG=$(git tag -l "v*.*.*" --sort=-v:refname | grep -v "\-" | head -n 1)
+            VERSION=$(echo "$LATEST_TAG" | sed 's/^v//')
+          fi
+
+          echo "clean_version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing version: $VERSION"
+
+      - name: Update package.json version
+        env:
+          CLEAN_VERSION: ${{ steps.get_version.outputs.clean_version }}
+        run: |
+          cd app
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          TARGET_VERSION="$CLEAN_VERSION"
+          if [ "$CURRENT_VERSION" = "$TARGET_VERSION" ]; then
+            echo "Version already set to $TARGET_VERSION, skipping update"
+          else
+            echo "Updating version from $CURRENT_VERSION to $TARGET_VERSION"
+            npm version $TARGET_VERSION --no-git-tag-version
+            echo "Updated package.json to version $TARGET_VERSION (temporary, not committed)"
+          fi
+
+      - name: Install deps
+        run: |
+          cd app
+          yarn
+
+      - name: Build TypeScript
+        run: |
+          cd app
+          yarn build
+
+      - name: Verify build output
+        run: |
+          cd app
+          if [ ! -d "dist" ]; then
+            echo "Build failed: dist directory not found"
+            exit 1
+          fi
+          if [ ! -f "dist/index.js" ]; then
+            echo "Build failed: dist/index.js not found"
+            exit 1
+          fi
+          if [ ! -f "dist/index.d.ts" ]; then
+            echo "Build failed: dist/index.d.ts not found"
+            exit 1
+          fi
+          echo "Build verification passed"
+
+      - name: Configure npm for GitHub Packages
+        run: |
+          cd app
+          echo "@hous3-digital:registry=https://npm.pkg.github.com" >> .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc
+
+      # NOTE: GitHub Packages doesn't support Trusted Publishing yet.
+      # When available, migrate to use id-token: write permission instead of GITHUB_TOKEN.
+      # See: https://docs.npmjs.com/generating-provenance-statements
+      - name: Publish to GitHub Packages
+        run: |
+          cd app
+          # Check if version already exists in registry (will fail if exists)
+          npm publish 2>&1 | tee publish.log || {
+            # Check for duplicate version errors first (most common in reruns)
+            if grep -qi "cannot publish over" publish.log || \
+               grep -qi "previously published" publish.log || \
+               grep -qi "cannot publish over the previously published versions" publish.log; then
+              echo "⚠️ Package version already published to GitHub Packages, skipping..."
+              exit 0
+            elif grep -q "401 Unauthorized" publish.log || grep -q "E401" publish.log; then
+              echo "❌ Authentication failed: GitHub token is invalid or lacks packages:write permission"
+              cat publish.log
+              exit 1
+            elif grep -q "403 Forbidden" publish.log || grep -q "E403" publish.log; then
+              echo "❌ Access denied: Token doesn't have permission to publish to this package"
+              cat publish.log
+              exit 1
+            else
+              echo "❌ Publish to GitHub Packages failed"
+              cat publish.log
+              exit 1
+            fi
+          }
+          echo "✅ Successfully published to GitHub Packages"
+
+      - name: Setup Node for npmjs.com
+        if: vars.PUBLISH_TO_NPM == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Configure npm for npmjs.com
+        if: vars.PUBLISH_TO_NPM == 'true'
+        run: |
+          cd app
+          # Remove GitHub Packages configuration completely
+          rm -f .npmrc
+          # Configure for npmjs.com with scope override
+          # NOTE: For better security, configure Trusted Publishing on npmjs.com:
+          # 1. Go to npmjs.com package settings
+          # 2. Add GitHub Actions as a publishing provider
+          # 3. Remove NPM_TOKEN secret and add 'id-token: write' permission
+          # 4. Use 'npm publish --provenance --access public' instead
+          echo "@hous3-digital:registry=https://registry.npmjs.org/" > .npmrc
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> .npmrc
+          echo "registry=https://registry.npmjs.org/" >> .npmrc
+          
+          echo "📄 .npmrc configured for npmjs.com:"
+          cat .npmrc
+
+      - name: Publish to npmjs.com
+        if: vars.PUBLISH_TO_NPM == 'true'
+        run: |
+          cd app
+          npm publish --access public 2>&1 | tee publish-npm.log || {
+            # Check for duplicate version errors first (most common in reruns)
+            if grep -qi "cannot publish over" publish-npm.log || \
+               grep -qi "previously published" publish-npm.log || \
+               grep -qi "cannot publish over the previously published versions" publish-npm.log; then
+              echo "⚠️ Package version already published to npmjs.com, skipping..."
+              exit 0
+            elif grep -q "401 Unauthorized" publish-npm.log || grep -q "E401" publish-npm.log; then
+              echo "❌ Authentication failed: NPM_TOKEN is invalid or expired"
+              cat publish-npm.log
+              exit 1
+            elif grep -q "403 Forbidden" publish-npm.log || grep -q "E403" publish-npm.log; then
+              echo "❌ Access denied: Token doesn't have permission to publish this package"
+              cat publish-npm.log
+              exit 1
+            else
+              echo "❌ Publish to npmjs.com failed"
+              cat publish-npm.log
+              exit 1
+            fi
+          }
+          echo "✅ Successfully published to npmjs.com"

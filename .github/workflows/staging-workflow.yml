@@ -1,0 +1,126 @@
+name: staging-workflow
+
+on:
+  push:
+    branches:
+      - staging
+
+permissions: {}
+
+jobs:
+  install:
+    name: Install
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - run: cd app && yarn
+
+      - name: Upload node_modules
+        uses: actions/upload-artifact@v7
+        with:
+          name: node_modules
+          path: app/node_modules
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: install
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - run: |
+          cd app
+          yarn
+          yarn lint
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: install
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Security Scan
+        if: false
+        run: |
+          cd app
+          yarn
+          yarn audit --level high --groups dependencies
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: install
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - run: |
+          cd app
+          yarn
+          yarn build
+          yarn test
+
+  generate-release:
+    name: Generate Pre-Release
+    runs-on: ubuntu-latest
+    needs: [lint, security-scan, test]
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          # persist-credentials true (padrão) para semantic-release commitar package.json
+
+      - name: Install release dependencies
+        run: |
+          cd app
+          yarn install --frozen-lockfile
+
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd app
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          npx semantic-release
