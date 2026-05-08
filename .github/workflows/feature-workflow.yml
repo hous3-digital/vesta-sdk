@@ -1,0 +1,133 @@
+name: feature-workflow
+
+on:
+  push:
+    branches:
+      - feat/**
+      - fix/**
+      - chore/**
+
+permissions: {}
+
+jobs:
+  install:
+    name: Install
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - run: cd app && yarn
+
+      - name: Upload node_modules
+        uses: actions/upload-artifact@v7
+        with:
+          name: node_modules
+          path: app/node_modules
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: install
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - run: |
+          cd app
+          yarn
+          yarn lint
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: install
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Security Scan
+        run: |
+          cd app
+          yarn
+          yarn audit --level high --groups dependencies
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: install
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - run: |
+          cd app
+          yarn
+          yarn build
+          yarn test
+
+  pull-request:
+    name: Open PR
+    needs: [lint, security-scan, test]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Create pull request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+          REF: ${{ github.ref }}
+        run: |
+          echo "$REF_NAME"
+
+          pr_number=$(gh pr list --state open --head "$REF_NAME" --base staging --json number -q '.[].number')
+          sleep 4
+          if [ -n "$pr_number" ]; then
+            echo "GOING TO EDIT CURRENT PR"
+            gh pr edit $pr_number \
+              --title "PR: $REF_NAME -> staging"
+          else 
+            echo "GOING TO CREATE PR"
+            gh pr create \
+              --title "PR: $REF_NAME -> staging" \
+              --body-file .github/pull_request_template.md \
+              --head "$REF" \
+              --base staging 
+          fi
