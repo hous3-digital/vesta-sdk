@@ -1,0 +1,20 @@
+name: "[Automação] Rollback produtivo"
+description: "Rollback produtivo"
+title: "Rollback produtivo"
+labels: ["rollback", "prod"]
+assignees:
+  - ${{ github.author }}
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Abaixo está alguns campos para você iniciar o rollback!
+  - type: input
+    id: repository
+    attributes:
+      label: ">>release<<"
+      description: Qual release você deseja fazer o rollback?
+      placeholder: <release> ex. v1.0.0
+
+    validations:
+      required: true
