@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vesta SDK — Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --purple: #7c3aed;
+      --purple-dark: #5b21b6;
+      --purple-light: #ede9fe;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f0a1e;
+      color: white;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Hero ───────────────────────────────────────────────────── */
+    .hero {
+      padding: 5rem 2rem 4rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -40%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 800px;
+      background: radial-gradient(circle, rgba(124,58,237,0.2) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-logo {
+      width: 64px;
+      height: 64px;
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      border-radius: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 8px 32px rgba(124,58,237,0.4);
+    }
+
+    .hero-eyebrow {
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      color: #a78bfa;
+      text-transform: uppercase;
+      margin-bottom: 1rem;
+    }
+
+    .hero-title {
+      font-size: clamp(2rem, 5vw, 3.25rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      margin-bottom: 1.25rem;
+      background: linear-gradient(135deg, #fff 40%, #c4b5fd);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-subtitle {
+      font-size: 1.05rem;
+      color: #94a3b8;
+      max-width: 520px;
+      margin: 0 auto 3.5rem;
+      line-height: 1.7;
+    }
+
+    /* ── Flow Diagram ───────────────────────────────────────────── */
+    .flow-section {
+      max-width: 720px;
+      margin: 0 auto 4rem;
+      padding: 0 2rem;
+    }
+
+    .flow-title {
+      text-align: center;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      margin-bottom: 1.5rem;
+    }
+
+    .flow-steps {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      justify-content: center;
+      flex-wrap: wrap;
+      row-gap: 1rem;
+    }
+
+    .flow-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 100px;
+    }
+
+    .flow-step-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .flow-step-label {
+      font-size: 0.72rem;
+      color: #94a3b8;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    .flow-arrow {
+      font-size: 1.2rem;
+      color: #475569;
+      flex-shrink: 0;
+      padding: 0 4px;
+      margin-bottom: 28px;
+    }
+
+    /* ── Client Cards ───────────────────────────────────────────── */
+    .clients-section {
+      padding: 0 2rem 5rem;
+    }
+
+    .clients-grid {
+      max-width: 760px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .client-card {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 20px;
+      padding: 2rem;
+      text-decoration: none;
+      display: block;
+      transition: transform 0.2s, border-color 0.2s, background 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .client-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      border-radius: 20px 20px 0 0;
+    }
+
+    .client-card.bank::before  { background: linear-gradient(90deg, #3b82f6, #1d4ed8); }
+    .client-card.insur::before { background: linear-gradient(90deg, #22c55e, #15803d); }
+
+    .client-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.07);
+    }
+
+    .client-card-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: 1.25rem;
+    }
+
+    .bank .client-card-icon  { background: rgba(59,130,246,0.15); }
+    .insur .client-card-icon { background: rgba(34,197,94,0.15); }
+
+    .client-card-name {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: white;
+      margin-bottom: 0.3rem;
+    }
+
+    .client-card-segment {
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 0.75rem;
+    }
+
+    .bank .client-card-segment  { color: #60a5fa; }
+    .insur .client-card-segment { color: #4ade80; }
+
+    .client-card-desc {
+      font-size: 0.875rem;
+      color: #94a3b8;
+      line-height: 1.6;
+      margin-bottom: 1.5rem;
+    }
+
+    .client-card-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 8px 16px;
+      border-radius: 8px;
+      transition: gap 0.15s;
+    }
+
+    .bank .client-card-cta  { background: rgba(59,130,246,0.15);  color: #93c5fd; }
+    .insur .client-card-cta { background: rgba(34,197,94,0.15);  color: #86efac; }
+
+    .client-card:hover .client-card-cta { gap: 10px; }
+
+    .client-card-features {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 1.25rem;
+    }
+
+    .feature-tag {
+      font-size: 0.72rem;
+      padding: 3px 9px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.06);
+      color: #94a3b8;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    /* ── Footer ─────────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding: 2rem;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      color: #475569;
+      font-size: 0.8rem;
+    }
+
+    footer a { color: #7c3aed; text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ── Scenario Banner ────────────────────────────────────────── */
+    .scenario-banner {
+      max-width: 720px;
+      margin: 0 auto 3rem;
+      padding: 1.25rem 1.5rem;
+      background: rgba(124,58,237,0.1);
+      border: 1px solid rgba(124,58,237,0.25);
+      border-radius: 14px;
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+    }
+
+    .scenario-banner .icon { font-size: 20px; flex-shrink: 0; margin-top: 2px; }
+
+    .scenario-text h3 {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #c4b5fd;
+      margin-bottom: 0.4rem;
+    }
+
+    .scenario-text p {
+      font-size: 0.82rem;
+      color: #94a3b8;
+      line-height: 1.6;
+    }
+
+    .scenario-text strong { color: #e2e8f0; }
+  </style>
+</head>
+<body>
+  <section class="hero">
+    <div class="hero-logo">⬡</div>
+    <p class="hero-eyebrow">Vesta Identity Protocol</p>
+    <h1 class="hero-title">Identidade Digital<br>Soberana e Portátil</h1>
+    <p class="hero-subtitle">
+      Crie sua credencial verificável <strong style="color:#c4b5fd">uma única vez</strong>
+      e use em qualquer parceiro Vesta — sem repetir KYC, sem expor seus dados.
+    </p>
+  </section>
+
+  <section class="flow-section">
+    <p class="flow-title">Como funciona</p>
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="flow-step-icon">📋</div>
+        <span class="flow-step-label">Usuário preenche<br>formulário</span>
+      </div>
+      <span class="flow-arrow">›</span>
+      <div class="flow-step">
+        <div class="flow-step-icon">🔍</div>
+        <span class="flow-step-label">SDK verifica<br>VC no dispositivo</span>
+      </div>
+      <span class="flow-arrow">›</span>
+      <div class="flow-step">
+        <div class="flow-step-icon" style="background:rgba(250,204,21,0.1)">🆔</div>
+        <span class="flow-step-label">KYC se<br>necessário</span>
+      </div>
+      <span class="flow-arrow">›</span>
+      <div class="flow-step">
+        <div class="flow-step-icon" style="background:rgba(34,197,94,0.1)">✅</div>
+        <span class="flow-step-label">Autenticado<br>on-chain</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="clients-section">
+    <div class="scenario-banner" style="margin-bottom: 2.5rem">
+      <span class="icon">💡</span>
+      <div class="scenario-text">
+        <h3>Cenário de demonstração</h3>
+        <p>
+          Comece pelo <strong>Vesta Seguros</strong> para criar sua identidade e ver o fluxo de KYC.
+          Depois acesse o <strong>Banco Vesta Digital</strong> — o SDK reconhecerá sua credencial
+          e <strong>pulará o KYC automaticamente</strong>, provando a portabilidade da identidade.
+        </p>
+      </div>
+    </div>
+
+    <div class="clients-grid">
+
+      <!-- Client 2 — Vesta Seguros (first for scenario guidance) -->
+      <a href="/client2/" class="client-card insur">
+        <div class="client-card-icon">🛡️</div>
+        <p class="client-card-segment">Seguros</p>
+        <h2 class="client-card-name">Vesta Seguros</h2>
+        <p class="client-card-desc">
+          Plataforma de seguros digitais. Crie sua conta e realize o KYC
+          para ativar sua apólice — sua identidade fica salva no dispositivo.
+        </p>
+        <div class="client-card-features">
+          <span class="feature-tag">KYC via Vesta</span>
+          <span class="feature-tag">Passkey</span>
+          <span class="feature-tag">Stellar Testnet</span>
+        </div>
+        <span class="client-card-cta">Começar aqui →</span>
+      </a>
+
+      <!-- Client 1 — Banco Vesta Digital -->
+      <a href="/client1/" class="client-card bank">
+        <div class="client-card-icon">🏦</div>
+        <p class="client-card-segment">Banco Digital</p>
+        <h2 class="client-card-name">Banco Vesta Digital</h2>
+        <p class="client-card-desc">
+          Banco digital moderno. Se você já tem uma credencial Vesta no dispositivo,
+          o cadastro é instantâneo — sem repetir KYC.
+        </p>
+        <div class="client-card-features">
+          <span class="feature-tag">KYC Portátil</span>
+          <span class="feature-tag">ZK Proof</span>
+          <span class="feature-tag">Sem repetição</span>
+        </div>
+        <span class="client-card-cta">Abrir conta →</span>
+      </a>
+
+    </div>
+  </section>
+
+  <footer>
+    Powered by <a href="#">@hous3-digital/vesta-sdk</a> &middot;
+    Verificação on-chain via <a href="#">Stellar Soroban</a>
+  </footer>
+</body>
+</html>
