@@ -74,7 +74,8 @@ export class VestaSDK {
     const http = createHttpClient(config);
     this.credentials = new CredentialsService(http);
     this.proofs = new ProofsService(http);
-    this.passkey = new PasskeyService(config.rpId);
+    // Passa apiUrl para que PasskeyService busque challenge do servidor (anti-replay)
+    this.passkey = new PasskeyService(config.rpId, config.apiUrl);
   }
 
   // ─── 1. Emissão ───────────────────────────────────────────────────────────
@@ -163,7 +164,7 @@ export class VestaSDK {
    * }
    */
   async validateCredential(req: ValidateCredentialRequest): Promise<GenerateAndSubmitResponse> {
-    // Autentica via Passkey e recupera a VC internamente
+    // Autentica via Passkey e recupera a VC + o challenge server-side usado
     const stored = await this.passkey.authenticate();
 
     return this.proofs.generateAndSubmit(
@@ -173,6 +174,7 @@ export class VestaSDK {
       req.verifierId,
       req.minKycLevel,
       req.subjectDid,
+      stored.challengeUsed, // enviado à API para verificação anti-replay
     );
   }
 

@@ -15,6 +15,12 @@ interface GenerateAndSubmitPayload {
   verifierId: string;
   minKycLevel: number;
   subjectDid?: string;
+  /**
+   * Challenge emitido pelo servidor via GET /auth/challenge e usado na
+   * assertion WebAuthn. Enviado à API para verificação anti-replay.
+   * Quando presente, a API valida e consome o challenge (one-time use).
+   */
+  challenge?: string;
 }
 
 /**
@@ -69,6 +75,7 @@ export class ProofsService {
     verifierId: string,
     minKycLevel: number,
     subjectDid?: string,
+    challenge?: string,
   ): Promise<GenerateAndSubmitResponse> {
     const payload: GenerateAndSubmitPayload = {
       vc,
@@ -76,6 +83,8 @@ export class ProofsService {
       verifierId,
       minKycLevel,
       ...(subjectDid && { subjectDid }),
+      // Challenge server-side para verificação anti-replay na API
+      ...(challenge && { challenge }),
     };
 
     // O backend também usa o vcHash internamente via vc.id, mas enviamos

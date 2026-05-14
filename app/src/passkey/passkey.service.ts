@@ -27,16 +27,21 @@ const DB_VERSION = 1;
  */
 export class PasskeyService {
   private readonly rpId: string;
+  private readonly apiUrl: string | undefined;
 
   /**
-   * @param rpId - Relying Party ID para WebAuthn.
+   * @param rpId   - Relying Party ID para WebAuthn.
    *   Deve ser igual ao domínio atual (ou um sufixo registrável).
    *   Padrão: `window.location.hostname` (ou `'localhost'` em testes).
+   * @param apiUrl - URL base da Vesta API (ex: "https://api.vesta.id/api/v1").
+   *   Quando fornecida, `authenticate()` busca o challenge do servidor
+   *   em vez de gerá-lo localmente, prevenindo replay attacks.
    */
-  constructor(rpId?: string) {
+  constructor(rpId?: string, apiUrl?: string) {
     this.rpId =
       rpId ??
       (typeof window !== 'undefined' ? window.location.hostname : 'localhost');
+    this.apiUrl = apiUrl;
   }
 
   // ─── API pública ─────────────────────────────────────────────────────────
@@ -159,11 +164,28 @@ export class PasskeyService {
   async authenticate(): Promise<StoredCredential> {
     this.assertSupported();
 
-    const challenge = crypto.getRandomValues(new Uint8Array(16));
+    // Busca challenge do servidor se apiUrl estiver configurada.
+    // Isso previne replay attacks: o challenge é de uso único e expira em 60s.
+    // Fallback para challenge local apenas se apiUrl não estiver disponível.
+    let challengeBuffer: ArrayBuffer;
+    let challengeHex: string | undefined;
+
+    if (this.apiUrl) {
+      const serverChallenge = await this.fetchServerChallenge();
+      challengeHex = serverChallenge;
+      // Converte hex para ArrayBuffer para a API WebAuthn
+      const bytes = new Uint8Array(
+        serverChallenge.match(/.{2}/g)!.map((b) => parseInt(b, 16)),
+      );
+      challengeBuffer = bytes.buffer as ArrayBuffer;
+    } else {
+      // Fallback: challenge local (menos seguro — sem proteção anti-replay)
+      challengeBuffer = crypto.getRandomValues(new Uint8Array(32)).buffer as ArrayBuffer;
+    }
 
     const assertion = await navigator.credentials.get({
       publicKey: {
-        challenge,
+        challenge: challengeBuffer,
         rpId: this.rpId,
         // allowCredentials vazio = resident key flow:
         // o autenticador apresenta todos os passkeys registrados para este RP
@@ -202,7 +224,9 @@ export class PasskeyService {
       );
     }
 
-    return stored;
+    // Inclui o challenge usado para que o chamador possa enviá-lo à API
+    // para verificação anti-replay em /proofs/generate-and-submit.
+    return { ...stored, challengeUsed: challengeHex };
   }
 
   /**
@@ -337,6 +361,37 @@ export class PasskeyService {
       request.onsuccess = () => resolve(request.result as string[]);
       request.onerror = () => reject(request.error);
     });
+  }
+
+  // ─── Challenge server-side ────────────────────────────────────────────────
+
+  /**
+   * Busca um challenge de uso único do servidor Vesta.
+   *
+   * O challenge é gerado com 32 bytes de entropia, armazenado com TTL de 60s
+   * e destruído após a primeira verificação — prevenindo replay attacks.
+   *
+   * @returns Challenge como string hexadecimal (64 chars).
+   * @throws {Error} Se a requisição ao servidor falhar.
+   */
+  private async fetchServerChallenge(): Promise<string> {
+    const url = `${this.apiUrl}/auth/challenge`;
+    const response = await fetch(url, { method: 'GET' });
+
+    if (!response.ok) {
+      throw new Error(
+        `VestaSDK: Falha ao buscar challenge do servidor (${response.status}). ` +
+        `URL: ${url}`,
+      );
+    }
+
+    const data = (await response.json()) as { challenge: string; expiresAt: number };
+
+    if (!data.challenge || typeof data.challenge !== 'string') {
+      throw new Error('VestaSDK: Resposta inválida do endpoint de challenge.');
+    }
+
+    return data.challenge;
   }
 
   // ─── Guard ───────────────────────────────────────────────────────────────

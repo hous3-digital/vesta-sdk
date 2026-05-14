@@ -328,6 +328,12 @@ export interface StoredCredential {
    * Codificado em base64url — usado em `allowCredentials` na autenticação.
    */
   passkeyCredentialId: string;
+  /**
+   * Challenge emitido pelo servidor e usado na assertion WebAuthn de autenticação.
+   * Presente apenas quando `authenticate()` é chamado com challenge server-side.
+   * Deve ser enviado de volta na requisição à API para verificação anti-replay.
+   */
+  challengeUsed?: string;
 }
 
 /** Resultado do registro de um Passkey para uma credencial. */
