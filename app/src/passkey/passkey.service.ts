@@ -370,7 +370,10 @@ export class PasskeyService {
       );
     }
 
-    const data = (await response.json()) as { challenge: string; expiresAt: number };
+    const json = (await response.json()) as
+      | { data: { challenge: string; expiresAt: number } }
+      | { challenge: string; expiresAt: number };
+    const data = 'data' in json ? json.data : json;
 
     if (!data.challenge || typeof data.challenge !== 'string') {
       throw new Error('VestaSDK: Resposta inválida do endpoint de challenge.');

@@ -20,7 +20,7 @@ describe('index exports', () => {
   });
 
   it('VestaSDK deve ser instanciável com config mínima', () => {
-    const sdk = new VestaSDK({ apiUrl: 'https://api.vesta.id', apiKey: 'test-key' });
+    const sdk = new VestaSDK({ apiKey: 'test-key' });
     expect(sdk).toBeInstanceOf(VestaSDK);
     expect(typeof sdk.issueCredential).toBe('function');
     expect(typeof sdk.validateCredential).toBe('function');

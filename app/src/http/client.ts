@@ -99,7 +99,12 @@ export function createHttpClient(config: VestaSDKConfig): HttpClient {
         throw new VestaSDKError(response.status, apiMessage);
       }
 
-      return response.json() as Promise<TResponse>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const json = (await response.json()) as any;
+      // Unwrap { data: ... } envelope used by the Vesta API interceptor
+      return (json !== null && typeof json === 'object' && 'data' in json && json.data !== undefined
+        ? json.data
+        : json) as TResponse;
     },
   };
 }
