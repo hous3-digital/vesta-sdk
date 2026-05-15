@@ -155,7 +155,7 @@ describe('VestaSDK', () => {
 
       expect(global.fetch).toHaveBeenCalledTimes(1);
       const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string];
-      expect(url).toBe('https://api.vesta.id/public/credential');
+      expect(url).toBe('http://vesta.trust-staging.com/public/credential');
 
       expect(result.vcHash).toBe(TEST_VC_HASH);
       expect(result.passkeyCredentialId).toBe('mock-cred-id');
@@ -256,7 +256,7 @@ describe('VestaSDK', () => {
       expect(fetchMock).toHaveBeenCalledTimes(3);
 
       const [proofUrl] = fetchMock.mock.calls[2] as [string];
-      expect(proofUrl).toBe('https://api.vesta.id/public/proof/generate-and-submit');
+      expect(proofUrl).toBe('http://vesta.trust-staging.com/public/proof/generate-and-submit');
     });
 
     it('deve incluir a VC recuperada via Passkey no payload enviado à API', async () => {
@@ -295,7 +295,7 @@ describe('VestaSDK', () => {
       expect(result.challengeNonce).toBe('nonce-abc-123');
 
       const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string];
-      expect(url).toBe('https://api.vesta.id/public/credential/verify');
+      expect(url).toBe('http://vesta.trust-staging.com/public/credential/verify');
     });
   });
 
@@ -357,7 +357,7 @@ describe('VestaSDK', () => {
 
       expect(result.verified).toBe(true);
       const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string];
-      expect(url).toBe('https://api.vesta.id/public/proof/submit');
+      expect(url).toBe('http://vesta.trust-staging.com/public/proof/submit');
     });
   });
 });

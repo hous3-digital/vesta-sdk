@@ -115,7 +115,8 @@ export class VestaSDK {
     } catch (err) {
       throw new Error(
         `Credencial emitida (vcHash: ${issueResponse.vcHash.slice(0, 16)}...) ` +
-        `mas o registro do Passkey falhou: ${(err as Error).message}`
+        `mas o registro do Passkey falhou: ${(err as Error).message}`,
+        { cause: err },
       );
     }
 

@@ -62,11 +62,11 @@ export interface HttpClient {
  * @returns Objeto com método `post` tipado.
  *
  * @example
- * const http = createHttpClient({ apiUrl: 'https://api.vesta.id', apiKey: 'key123' });
+ * const http = createHttpClient({ apiUrl: 'http://vesta.trust-staging.com', apiKey: 'key123' });
  * const response = await http.post<MyBody, MyResponse>('/credentials', body);
  */
 /** URL interna da Vesta API. Não faz parte da API pública do SDK. */
-export const VESTA_API_URL = 'http://localhost:3000';
+export const VESTA_API_URL = 'http://vesta.trust-staging.com';
 
 export function createHttpClient(config: VestaSDKConfig): HttpClient {
   const baseUrl = VESTA_API_URL;
