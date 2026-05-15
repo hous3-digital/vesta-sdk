@@ -227,15 +227,22 @@ jobs:
       # See: https://docs.npmjs.com/generating-provenance-statements
       - name: Publish to GitHub Packages
         run: |
+          set -euo pipefail
           cd app
+          
           # Check if version already exists in registry (will fail if exists)
-          npm publish 2>&1 | tee publish.log || {
+          if ! npm publish 2>&1 | tee publish.log; then
             # Check for duplicate version errors first (most common in reruns)
             if grep -qi "cannot publish over" publish.log || \
                grep -qi "previously published" publish.log || \
                grep -qi "cannot publish over the previously published versions" publish.log; then
               echo "⚠️ Package version already published to GitHub Packages, skipping..."
               exit 0
+            elif grep -qi "must specify a tag" publish.log || \
+                 grep -qi "prerelease version" publish.log; then
+              echo "❌ Prerelease version requires --tag: use --tag beta or --tag next"
+              cat publish.log
+              exit 1
             elif grep -q "401 Unauthorized" publish.log || grep -q "E401" publish.log; then
               echo "❌ Authentication failed: GitHub token is invalid or lacks packages:write permission"
               cat publish.log
@@ -244,12 +251,17 @@ jobs:
               echo "❌ Access denied: Token doesn't have permission to publish to this package"
               cat publish.log
               exit 1
+            elif grep -q "404 Not Found" publish.log || grep -q "E404" publish.log; then
+              echo "❌ Package not found: Token may be expired/invalid or package/scope doesn't exist"
+              cat publish.log
+              exit 1
             else
               echo "❌ Publish to GitHub Packages failed"
               cat publish.log
               exit 1
             fi
-          }
+          fi
+          
           echo "✅ Successfully published to GitHub Packages"
 
       - name: Setup Node for npmjs.com
@@ -281,14 +293,21 @@ jobs:
       - name: Publish to npmjs.com
         if: vars.PUBLISH_TO_NPM == 'true'
         run: |
+          set -euo pipefail
           cd app
-          npm publish --access public 2>&1 | tee publish-npm.log || {
+          
+          if ! npm publish --access public 2>&1 | tee publish-npm.log; then
             # Check for duplicate version errors first (most common in reruns)
             if grep -qi "cannot publish over" publish-npm.log || \
                grep -qi "previously published" publish-npm.log || \
                grep -qi "cannot publish over the previously published versions" publish-npm.log; then
               echo "⚠️ Package version already published to npmjs.com, skipping..."
               exit 0
+            elif grep -qi "must specify a tag" publish-npm.log || \
+                 grep -qi "prerelease version" publish-npm.log; then
+              echo "❌ Prerelease version requires --tag: use --tag beta or --tag next"
+              cat publish-npm.log
+              exit 1
             elif grep -q "401 Unauthorized" publish-npm.log || grep -q "E401" publish-npm.log; then
               echo "❌ Authentication failed: NPM_TOKEN is invalid or expired"
               cat publish-npm.log
@@ -297,10 +316,15 @@ jobs:
               echo "❌ Access denied: Token doesn't have permission to publish this package"
               cat publish-npm.log
               exit 1
+            elif grep -q "404 Not Found" publish-npm.log || grep -q "E404" publish-npm.log; then
+              echo "❌ Package not found: Token may be expired/invalid or package/scope doesn't exist"
+              cat publish-npm.log
+              exit 1
             else
               echo "❌ Publish to npmjs.com failed"
               cat publish-npm.log
               exit 1
             fi
-          }
+          fi
+          
           echo "✅ Successfully published to npmjs.com"
