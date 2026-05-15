@@ -65,8 +65,11 @@ export interface HttpClient {
  * const http = createHttpClient({ apiUrl: 'https://api.vesta.id', apiKey: 'key123' });
  * const response = await http.post<MyBody, MyResponse>('/credentials', body);
  */
+/** URL interna da Vesta API. Não faz parte da API pública do SDK. */
+export const VESTA_API_URL = 'http://localhost:3000';
+
 export function createHttpClient(config: VestaSDKConfig): HttpClient {
-  const baseUrl = config.apiUrl.replace(/\/$/, '');
+  const baseUrl = VESTA_API_URL;
 
   return {
     async post<TBody, TResponse>(path: string, body: TBody): Promise<TResponse> {

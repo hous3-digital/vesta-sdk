@@ -1,4 +1,5 @@
 import type { PasskeyRegistrationResult, StoredCredential, VestaVC } from '../types';
+import { VESTA_API_URL } from '../http/client';
 
 /** Nome do banco IndexedDB usado pelo SDK. */
 const DB_NAME = 'vesta-sdk';
@@ -27,21 +28,16 @@ const DB_VERSION = 1;
  */
 export class PasskeyService {
   private readonly rpId: string;
-  private readonly apiUrl: string | undefined;
 
   /**
-   * @param rpId   - Relying Party ID para WebAuthn.
+   * @param rpId - Relying Party ID para WebAuthn.
    *   Deve ser igual ao domínio atual (ou um sufixo registrável).
    *   Padrão: `window.location.hostname` (ou `'localhost'` em testes).
-   * @param apiUrl - URL base da Vesta API (ex: "https://api.vesta.id/api/v1").
-   *   Quando fornecida, `authenticate()` busca o challenge do servidor
-   *   em vez de gerá-lo localmente, prevenindo replay attacks.
    */
-  constructor(rpId?: string, apiUrl?: string) {
+  constructor(rpId?: string) {
     this.rpId =
       rpId ??
       (typeof window !== 'undefined' ? window.location.hostname : 'localhost');
-    this.apiUrl = apiUrl;
   }
 
   // ─── API pública ─────────────────────────────────────────────────────────
@@ -164,24 +160,13 @@ export class PasskeyService {
   async authenticate(): Promise<StoredCredential> {
     this.assertSupported();
 
-    // Busca challenge do servidor se apiUrl estiver configurada.
-    // Isso previne replay attacks: o challenge é de uso único e expira em 60s.
-    // Fallback para challenge local apenas se apiUrl não estiver disponível.
-    let challengeBuffer: ArrayBuffer;
-    let challengeHex: string | undefined;
-
-    if (this.apiUrl) {
-      const serverChallenge = await this.fetchServerChallenge();
-      challengeHex = serverChallenge;
-      // Converte hex para ArrayBuffer para a API WebAuthn
-      const bytes = new Uint8Array(
-        serverChallenge.match(/.{2}/g)!.map((b) => parseInt(b, 16)),
-      );
-      challengeBuffer = bytes.buffer as ArrayBuffer;
-    } else {
-      // Fallback: challenge local (menos seguro — sem proteção anti-replay)
-      challengeBuffer = crypto.getRandomValues(new Uint8Array(32)).buffer as ArrayBuffer;
-    }
+    // Busca challenge do servidor (anti-replay: de uso único, expira em 60s).
+    const serverChallenge = await this.fetchServerChallenge();
+    const challengeHex: string = serverChallenge;
+    const bytes = new Uint8Array(
+      serverChallenge.match(/.{2}/g)!.map((b) => parseInt(b, 16)),
+    );
+    const challengeBuffer = bytes.buffer as ArrayBuffer;
 
     const assertion = await navigator.credentials.get({
       publicKey: {
@@ -375,7 +360,7 @@ export class PasskeyService {
    * @throws {Error} Se a requisição ao servidor falhar.
    */
   private async fetchServerChallenge(): Promise<string> {
-    const url = `${this.apiUrl}/auth/challenge`;
+    const url = `${VESTA_API_URL}/public/auth/challenge`;
     const response = await fetch(url, { method: 'GET' });
 
     if (!response.ok) {

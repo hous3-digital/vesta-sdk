@@ -72,10 +72,9 @@ export class VestaSDK {
    */
   constructor(config: VestaSDKConfig) {
     const http = createHttpClient(config);
-    this.credentials = new CredentialsService(http);
+    this.credentials = new CredentialsService(http, config.issuerId);
     this.proofs = new ProofsService(http);
-    // Passa apiUrl para que PasskeyService busque challenge do servidor (anti-replay)
-    this.passkey = new PasskeyService(config.rpId, config.apiUrl);
+    this.passkey = new PasskeyService(config.rpId);
   }
 
   // ─── 1. Emissão ───────────────────────────────────────────────────────────

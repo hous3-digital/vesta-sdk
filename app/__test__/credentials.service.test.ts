@@ -62,7 +62,7 @@ describe('CredentialsService', () => {
 
   beforeEach(() => {
     mockPost = jest.fn();
-    service = new CredentialsService(makeHttpClient(mockPost));
+    service = new CredentialsService(makeHttpClient(mockPost), 'bradesco');
   });
 
   // ── issue ──────────────────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ describe('CredentialsService', () => {
       const result = await service.issue(issueReq);
 
       expect(mockPost).toHaveBeenCalledTimes(1);
-      expect(mockPost).toHaveBeenCalledWith('/credentials', issueReq);
+      expect(mockPost).toHaveBeenCalledWith('/public/credential', { ...issueReq, issuerId: 'bradesco' });
       expect(result).toEqual(mockIssueResponse);
     });
 
@@ -137,7 +137,7 @@ describe('CredentialsService', () => {
 
       const result = await service.verify(verifyReq);
 
-      expect(mockPost).toHaveBeenCalledWith('/credentials/verify', verifyReq);
+      expect(mockPost).toHaveBeenCalledWith('/public/credential/verify', verifyReq);
       expect(result.valid).toBe(true);
       expect(result.challengeNonce).toBe('nonce-uuid');
     });
@@ -182,7 +182,7 @@ describe('CredentialsService', () => {
 
       const result = await service.revoke(revokeReq);
 
-      expect(mockPost).toHaveBeenCalledWith('/credentials/revoke', revokeReq);
+      expect(mockPost).toHaveBeenCalledWith('/public/credential/revoke', revokeReq);
       expect(result.success).toBe(true);
       expect(result.status).toBe('revoked');
     });
@@ -193,7 +193,7 @@ describe('CredentialsService', () => {
 
       await service.revoke(reqSemMotivo);
 
-      expect(mockPost).toHaveBeenCalledWith('/credentials/revoke', reqSemMotivo);
+      expect(mockPost).toHaveBeenCalledWith('/public/credential/revoke', reqSemMotivo);
     });
 
     it('deve propagar VestaSDKError 400 para credencial já revogada', async () => {

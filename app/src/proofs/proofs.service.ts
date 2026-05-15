@@ -90,7 +90,7 @@ export class ProofsService {
     // O backend também usa o vcHash internamente via vc.id, mas enviamos
     // explicitamente para correlação com o registro de attestation.
     return this.http.post<GenerateAndSubmitPayload & { vcHash: string }, GenerateAndSubmitResponse>(
-      '/proofs/generate-and-submit',
+      '/public/proof/generate-and-submit',
       { ...payload, vcHash },
     );
   }
@@ -118,7 +118,7 @@ export class ProofsService {
    */
   async submit(req: SubmitProofRequest): Promise<GenerateAndSubmitResponse> {
     return this.http.post<SubmitProofRequest, GenerateAndSubmitResponse>(
-      '/proofs/submit',
+      '/public/proof/submit',
       req,
     );
   }

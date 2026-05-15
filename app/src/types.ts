@@ -106,14 +106,12 @@ export interface Groth16Proof {
  * });
  */
 export interface VestaSDKConfig {
-  /** URL base da vesta-api-stellar — sem barra final. */
-  apiUrl: string;
   /**
    * Chave de API do integrador (banco/fintech).
    * Análogo à publishable key do Stripe — incluída no header X-Api-Key.
    */
   apiKey: string;
-  /** ID do emissor enviado no header X-Vesta-Issuer-ID (opcional). */
+  /** ID do emissor enviado no corpo das requisições de emissão de credencial. */
   issuerId?: string;
   /**
    * Relying Party ID para WebAuthn.

@@ -94,7 +94,7 @@ describe('ProofsService', () => {
 
       expect(mockPost).toHaveBeenCalledTimes(1);
       expect(mockPost).toHaveBeenCalledWith(
-        '/proofs/generate-and-submit',
+        '/public/proof/generate-and-submit',
         expect.objectContaining({
           vc: mockVC,
           vcHash: 'abc123hash',
@@ -119,7 +119,7 @@ describe('ProofsService', () => {
       );
 
       expect(mockPost).toHaveBeenCalledWith(
-        '/proofs/generate-and-submit',
+        '/public/proof/generate-and-submit',
         expect.objectContaining({ subjectDid: 'did:key:z6MkSubject' }),
       );
     });
@@ -176,7 +176,7 @@ describe('ProofsService', () => {
 
       const result = await service.submit(submitReq);
 
-      expect(mockPost).toHaveBeenCalledWith('/proofs/submit', submitReq);
+      expect(mockPost).toHaveBeenCalledWith('/public/proof/submit', submitReq);
       expect(result.verified).toBe(true);
     });
 

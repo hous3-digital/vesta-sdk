@@ -11,8 +11,8 @@ import type {
 /**
  * Serviço responsável por todas as operações de credencial da vesta-api.
  *
- * Encapsula as chamadas aos endpoints `/credentials`, `/credentials/verify`
- * e `/credentials/revoke`, delegando a autenticação e o transporte HTTP
+ * Encapsula as chamadas aos endpoints `/public/credential`, `/public/credential/verify`
+ * e `/public/credential/revoke`, delegando a autenticação e o transporte HTTP
  * ao `HttpClient` injetado.
  *
  * @internal Não instanciar diretamente — use o `VestaSDK` como ponto de entrada.
@@ -20,8 +20,12 @@ import type {
 export class CredentialsService {
   /**
    * @param http - Cliente HTTP pré-configurado com API key e URL base.
+   * @param issuerId - ID do emissor enviado no corpo das requisições de emissão.
    */
-  constructor(private readonly http: HttpClient) {}
+  constructor(
+    private readonly http: HttpClient,
+    private readonly issuerId?: string,
+  ) {}
 
   /**
    * Emite uma nova Credencial Verificável (VC) para o titular informado.
@@ -32,7 +36,6 @@ export class CredentialsService {
    * @param req - Dados de identidade e KYC do titular.
    * @returns VC emitida, vcHash, credentialId e metadados de expiração.
    * @throws {VestaSDKError} 400 se os dados forem inválidos.
-   * @throws {VestaSDKError} 401 se a API key for inválida.
    *
    * @example
    * const result = await service.issue({
@@ -45,9 +48,9 @@ export class CredentialsService {
    * console.log(result.vcHash); // "a1b2c3..."
    */
   async issue(req: IssueCredentialRequest): Promise<IssueCredentialResponse> {
-    return this.http.post<IssueCredentialRequest, IssueCredentialResponse>(
-      '/credentials',
-      req,
+    return this.http.post<IssueCredentialRequest & { issuerId?: string }, IssueCredentialResponse>(
+      '/public/credential',
+      { ...req, issuerId: this.issuerId },
     );
   }
 
@@ -69,7 +72,7 @@ export class CredentialsService {
    */
   async verify(req: VerifyCredentialRequest): Promise<VerifyCredentialResponse> {
     return this.http.post<VerifyCredentialRequest, VerifyCredentialResponse>(
-      '/credentials/verify',
+      '/public/credential/verify',
       req,
     );
   }
@@ -82,7 +85,6 @@ export class CredentialsService {
    *
    * @param req - Hash da VC a revogar e motivo opcional.
    * @returns Confirmação da revogação com status atualizado.
-   * @throws {VestaSDKError} 401 se a API key for inválida.
    * @throws {VestaSDKError} 404 se a credencial não existir.
    * @throws {VestaSDKError} 400 se a credencial já estiver revogada.
    *
@@ -91,7 +93,7 @@ export class CredentialsService {
    */
   async revoke(req: RevokeCredentialRequest): Promise<RevokeCredentialResponse> {
     return this.http.post<RevokeCredentialRequest, RevokeCredentialResponse>(
-      '/credentials/revoke',
+      '/public/credential/revoke',
       req,
     );
   }

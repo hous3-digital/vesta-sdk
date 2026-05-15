@@ -13,7 +13,6 @@ import type {
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const mockConfig: VestaSDKConfig = {
-  apiUrl: 'https://api.vesta.id',
   apiKey: 'test-api-key',
   issuerId: 'bradesco',
   rpId: 'localhost',
@@ -156,7 +155,7 @@ describe('VestaSDK', () => {
 
       expect(global.fetch).toHaveBeenCalledTimes(1);
       const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string];
-      expect(url).toBe('https://api.vesta.id/credentials');
+      expect(url).toBe('https://api.vesta.id/public/credential');
 
       expect(result.vcHash).toBe(TEST_VC_HASH);
       expect(result.passkeyCredentialId).toBe('mock-cred-id');
@@ -224,19 +223,21 @@ describe('VestaSDK', () => {
   // ── validateCredential ────────────────────────────────────────────────────
 
   describe('validateCredential()', () => {
+    const mockChallengeResponse = { challenge: 'aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899', expiresAt: Date.now() + 60000 };
+
     /**
-     * Helper: cria um mock único de fetch com duas respostas sequenciais,
-     * preservando o histórico de calls para inspeção posterior.
+     * Helper: 3 respostas sequenciais — issue, challenge (anti-replay), proof.
      */
-    function mockFetchSequence(first: unknown, second: unknown): jest.Mock {
+    function mockFetchSequence(issue: unknown, proof: unknown): jest.Mock {
       const mockFn = jest.fn()
-        .mockResolvedValueOnce({ ok: true, status: 201, statusText: 'Created', json: () => Promise.resolve(first) })
-        .mockResolvedValueOnce({ ok: true, status: 201, statusText: 'Created', json: () => Promise.resolve(second) });
+        .mockResolvedValueOnce({ ok: true, status: 200, statusText: 'OK', json: () => Promise.resolve(issue) })
+        .mockResolvedValueOnce({ ok: true, status: 200, statusText: 'OK', json: () => Promise.resolve(mockChallengeResponse) })
+        .mockResolvedValueOnce({ ok: true, status: 200, statusText: 'OK', json: () => Promise.resolve(proof) });
       global.fetch = mockFn;
       return mockFn;
     }
 
-    it('deve autenticar via Passkey e chamar POST /proofs/generate-and-submit', async () => {
+    it('deve autenticar via Passkey e chamar POST /public/proof/generate-and-submit', async () => {
       const fetchMock = mockFetchSequence(mockIssueApiResponse, mockGenerateResponse);
 
       await sdk.issueCredential({
@@ -252,10 +253,10 @@ describe('VestaSDK', () => {
 
       expect(result.verified).toBe(true);
       expect(result.stellar.txHash).toBe('MOCK_TX_001');
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
 
-      const [proofUrl] = fetchMock.mock.calls[1] as [string];
-      expect(proofUrl).toBe('https://api.vesta.id/proofs/generate-and-submit');
+      const [proofUrl] = fetchMock.mock.calls[2] as [string];
+      expect(proofUrl).toBe('https://api.vesta.id/public/proof/generate-and-submit');
     });
 
     it('deve incluir a VC recuperada via Passkey no payload enviado à API', async () => {
@@ -272,7 +273,8 @@ describe('VestaSDK', () => {
         minKycLevel: 2,
       });
 
-      const [, options] = fetchMock.mock.calls[1] as [string, RequestInit];
+      // call[0] = issue, call[1] = challenge, call[2] = proof
+      const [, options] = fetchMock.mock.calls[2] as [string, RequestInit];
       const body = JSON.parse(options.body as string) as Record<string, unknown>;
       expect(body['vc']).toEqual(mockVC);
       expect(body['vcHash']).toBe(TEST_VC_HASH);
@@ -293,7 +295,7 @@ describe('VestaSDK', () => {
       expect(result.challengeNonce).toBe('nonce-abc-123');
 
       const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string];
-      expect(url).toBe('https://api.vesta.id/credentials/verify');
+      expect(url).toBe('https://api.vesta.id/public/credential/verify');
     });
   });
 
@@ -355,7 +357,7 @@ describe('VestaSDK', () => {
 
       expect(result.verified).toBe(true);
       const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string];
-      expect(url).toBe('https://api.vesta.id/proofs/submit');
+      expect(url).toBe('https://api.vesta.id/public/proof/submit');
     });
   });
 });
