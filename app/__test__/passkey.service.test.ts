@@ -3,7 +3,7 @@
 import 'fake-indexeddb/auto';
 
 import { PasskeyService } from '../src/passkey/passkey.service';
-import type { StoredCredential, VestaVC } from '../src/types';
+import type { VestaVC } from '../src/types';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
