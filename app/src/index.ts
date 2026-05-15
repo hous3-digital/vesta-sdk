@@ -8,7 +8,6 @@
  * import { VestaSDK } from '@hous3-digital/vesta-sdk';
  *
  * const sdk = new VestaSDK({
- *   apiUrl: 'https://api.vesta.id',
  *   apiKey: 'vesta_live_abc123',
  * });
  *

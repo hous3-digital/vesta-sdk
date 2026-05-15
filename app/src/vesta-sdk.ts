@@ -31,7 +31,6 @@ import type {
  * import { VestaSDK } from '@hous3-digital/vesta-sdk';
  *
  * const sdk = new VestaSDK({
- *   apiUrl: 'https://api.vesta.id',
  *   apiKey: 'vesta_live_abc123',
  *   issuerId: 'bradesco',
  * });
@@ -62,11 +61,10 @@ export class VestaSDK {
   /**
    * Instancia o SDK com as configurações do integrador.
    *
-   * @param config - URL da API, API key, issuer ID e rpId opcionais.
+   * @param config - API key, issuer ID e rpId opcionais.
    *
    * @example
    * const sdk = new VestaSDK({
-   *   apiUrl: 'https://api.vesta.id',
    *   apiKey: 'vesta_live_abc123',
    * });
    */
