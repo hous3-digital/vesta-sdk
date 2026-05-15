@@ -6,6 +6,7 @@ dist/
 *.d.ts.map
 !src/**/*
 !*.config.js
+!jest.setup.js
 .npmrc
 *.log
 .env
