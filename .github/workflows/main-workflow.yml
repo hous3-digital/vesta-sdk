@@ -244,6 +244,10 @@ jobs:
               echo "❌ Access denied: Token doesn't have permission to publish to this package"
               cat publish.log
               exit 1
+            elif grep -q "404 Not Found" publish.log || grep -q "E404" publish.log; then
+              echo "❌ Package not found: Token may be expired/invalid or package/scope doesn't exist"
+              cat publish.log
+              exit 1
             else
               echo "❌ Publish to GitHub Packages failed"
               cat publish.log
@@ -295,6 +299,10 @@ jobs:
               exit 1
             elif grep -q "403 Forbidden" publish-npm.log || grep -q "E403" publish-npm.log; then
               echo "❌ Access denied: Token doesn't have permission to publish this package"
+              cat publish-npm.log
+              exit 1
+            elif grep -q "404 Not Found" publish-npm.log || grep -q "E404" publish-npm.log; then
+              echo "❌ Package not found: Token may be expired/invalid or package/scope doesn't exist"
               cat publish-npm.log
               exit 1
             else
