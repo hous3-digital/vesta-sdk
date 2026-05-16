@@ -100,7 +100,7 @@ export interface Groth16Proof {
  *
  * @example
  * const sdk = new VestaSDK({
- *   apiUrl: 'http://vesta.trust-staging.com',
+ *   apiUrl: 'https://vesta.trust-staging.com',
  *   apiKey: 'vesta_live_abc123',
  *   issuerId: 'bradesco',
  * });
