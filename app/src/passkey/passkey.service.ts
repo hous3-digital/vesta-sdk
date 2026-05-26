@@ -1,5 +1,5 @@
 import type { PasskeyRegistrationResult, StoredCredential, VestaVC } from '../types';
-import { VESTA_API_URL } from '../http/client';
+import { VestaSDKError } from '../http/client';
 
 /** Nome do banco IndexedDB usado pelo SDK. */
 const DB_NAME = 'vesta-sdk';
@@ -26,18 +26,24 @@ const DB_VERSION = 1;
  *
  * @internal Não instanciar diretamente — use o `VestaSDK` como ponto de entrada.
  */
+/** Timeout para a requisição de challenge (10s). */
+const CHALLENGE_TIMEOUT_MS = 10_000;
+
 export class PasskeyService {
   private readonly rpId: string;
+  private readonly baseUrl: string;
 
   /**
    * @param rpId - Relying Party ID para WebAuthn.
    *   Deve ser igual ao domínio atual (ou um sufixo registrável).
    *   Padrão: `window.location.hostname` (ou `'localhost'` em testes).
+   * @param baseUrl - URL base da API Vesta (resolvida a partir do environment).
    */
-  constructor(rpId?: string) {
+  constructor(rpId: string | undefined, baseUrl: string) {
     this.rpId =
       rpId ??
       (typeof window !== 'undefined' ? window.location.hostname : 'localhost');
+    this.baseUrl = baseUrl;
   }
 
   // ─── API pública ─────────────────────────────────────────────────────────
@@ -360,13 +366,33 @@ export class PasskeyService {
    * @throws {Error} Se a requisição ao servidor falhar.
    */
   private async fetchServerChallenge(): Promise<string> {
-    const url = `${VESTA_API_URL}/public/auth/challenge`;
-    const response = await fetch(url, { method: 'GET' });
+    const url = `${this.baseUrl}/public/auth/challenge`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CHALLENGE_TIMEOUT_MS);
+
+    let response: Response;
+    try {
+      response = await fetch(url, { method: 'GET', signal: controller.signal });
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new VestaSDKError(
+          0,
+          `Timeout ao buscar challenge do servidor (${CHALLENGE_TIMEOUT_MS / 1000}s).`,
+        );
+      }
+      throw new VestaSDKError(
+        0,
+        'Erro de rede ao buscar challenge — verifique sua conexão com a internet.',
+      );
+    }
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
-      throw new Error(
-        `VestaSDK: Falha ao buscar challenge do servidor (${response.status}). ` +
-        `URL: ${url}`,
+      throw new VestaSDKError(
+        response.status,
+        `Falha ao buscar challenge do servidor (${response.status}).`,
       );
     }
 
@@ -376,7 +402,7 @@ export class PasskeyService {
     const data = 'data' in json ? json.data : json;
 
     if (!data.challenge || typeof data.challenge !== 'string') {
-      throw new Error('VestaSDK: Resposta inválida do endpoint de challenge.');
+      throw new VestaSDKError(0, 'Resposta inválida do endpoint de challenge.');
     }
 
     return data.challenge;

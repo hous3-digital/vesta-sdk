@@ -8,6 +8,23 @@
 // ─── Enums e primitivos ───────────────────────────────────────────────────────
 
 /**
+ * Ambiente de execução do SDK.
+ * Determina a URL base da API Vesta.
+ *
+ * @example
+ * const sdk = new VestaSDK({
+ *   apiKey: 'key',
+ *   environment: VestaEnvironment.PRODUCTION,
+ * });
+ */
+export enum VestaEnvironment {
+  /** Ambiente de homologação — https://vesta.trust-staging.com */
+  STAGING = 'staging',
+  /** Ambiente de produção — https://vesta.trust.com */
+  PRODUCTION = 'production',
+}
+
+/**
  * Nível de KYC suportado pela Vesta.
  * - basic: verificação documental simples
  * - intermediate: validação adicional (ex: comprovante de renda)
@@ -113,6 +130,11 @@ export interface VestaSDKConfig {
   apiKey: string;
   /** ID do emissor enviado no corpo das requisições de emissão de credencial. */
   issuerId?: string;
+  /**
+   * Ambiente de execução. Determina a URL base da API.
+   * Padrão: `VestaEnvironment.STAGING`.
+   */
+  environment?: VestaEnvironment;
   /**
    * Relying Party ID para WebAuthn.
    * Padrão: window.location.hostname.
