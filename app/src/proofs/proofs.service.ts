@@ -14,13 +14,12 @@ interface GenerateAndSubmitPayload {
   };
   verifierId: string;
   minKycLevel: number;
-  subjectDid?: string;
   /**
    * Challenge emitido pelo servidor via GET /auth/challenge e usado na
    * assertion WebAuthn. Enviado à API para verificação anti-replay.
-   * Quando presente, a API valida e consome o challenge (one-time use).
+   * A API valida e consome o challenge (one-time use) — campo obrigatório.
    */
-  challenge?: string;
+  challenge: string;
 }
 
 /**
@@ -49,11 +48,10 @@ export class ProofsService {
    * 4. Persiste a attestation no banco de dados.
    *
    * @param vc - Credencial Verificável recuperada do armazenamento local.
-   * @param vcHash - Hash SHA-256 da VC — identificador no backend.
    * @param privateInputs - Dados privados do titular (witnesses do circuito ZK).
    * @param verifierId - Identificador do verificador — ex: "verifier_bradesco".
    * @param minKycLevel - Nível mínimo de KYC exigido: 1=basic, 2=intermediate, 3=complete.
-   * @param subjectDid - DID do sujeito (opcional).
+   * @param challenge - Challenge de uso único obtido via GET /public/auth/challenge (anti-replay).
    * @returns Resultado da verificação com detalhes da prova ZK, transação Stellar e attestation.
    * @throws {VestaSDKError} 400 se os dados forem inválidos ou o nível de KYC for insuficiente.
    * @throws {VestaSDKError} 401 se a API key for inválida.
@@ -70,28 +68,22 @@ export class ProofsService {
    */
   async generateAndSubmit(
     vc: VestaVC,
-    vcHash: string,
     privateInputs: { cpf: string; birthDate: string; fullName: string },
     verifierId: string,
     minKycLevel: number,
-    subjectDid?: string,
-    challenge?: string,
+    challenge: string,
   ): Promise<GenerateAndSubmitResponse> {
     const payload: GenerateAndSubmitPayload = {
       vc,
       privateInputs,
       verifierId,
       minKycLevel,
-      ...(subjectDid && { subjectDid }),
-      // Challenge server-side para verificação anti-replay na API
-      ...(challenge && { challenge }),
+      challenge,
     };
 
-    // O backend também usa o vcHash internamente via vc.id, mas enviamos
-    // explicitamente para correlação com o registro de attestation.
-    return this.http.post<GenerateAndSubmitPayload & { vcHash: string }, GenerateAndSubmitResponse>(
+    return this.http.post<GenerateAndSubmitPayload, GenerateAndSubmitResponse>(
       '/public/proof/generate-and-submit',
-      { ...payload, vcHash },
+      payload,
     );
   }
 

@@ -165,13 +165,18 @@ export class VestaSDK {
   private async _validateCredential(req: ValidateCredentialRequest): Promise<GenerateAndSubmitResponse> {
     const stored = await this.passkey.authenticate();
 
+    if (!stored.challengeUsed) {
+      throw new Error(
+        'VestaSDK: Challenge não foi obtido durante a autenticação Passkey. ' +
+        'Isso indica uma falha no endpoint GET /public/auth/challenge.',
+      );
+    }
+
     return this.proofs.generateAndSubmit(
       stored.vc,
-      stored.vcHash,
       req.privateInputs,
       req.verifierId,
       req.minKycLevel,
-      req.subjectDid,
       stored.challengeUsed,
     );
   }

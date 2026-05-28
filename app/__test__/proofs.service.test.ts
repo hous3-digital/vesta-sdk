@@ -81,55 +81,38 @@ describe('ProofsService', () => {
   describe('generateAndSubmit()', () => {
     const privateInputs = { cpf: '12345678900', birthDate: '19900315', fullName: 'JOAO SILVA' };
 
-    it('deve chamar POST /proofs/generate-and-submit com vc, vcHash e privateInputs', async () => {
+    it('deve chamar POST /proofs/generate-and-submit com vc, privateInputs e challenge', async () => {
       mockPost.mockResolvedValueOnce(mockGenerateResponse);
 
       const result = await service.generateAndSubmit(
         mockVC,
-        'abc123hash',
         privateInputs,
         'verifier_bradesco',
         2,
+        'challenge-hex-123',
       );
 
       expect(mockPost).toHaveBeenCalledTimes(1);
       expect(mockPost).toHaveBeenCalledWith(
         '/public/proof/generate-and-submit',
-        expect.objectContaining({
+        {
           vc: mockVC,
-          vcHash: 'abc123hash',
           privateInputs,
           verifierId: 'verifier_bradesco',
           minKycLevel: 2,
-        }),
+          challenge: 'challenge-hex-123',
+        },
       );
       expect(result.verified).toBe(true);
     });
 
-    it('deve incluir subjectDid quando fornecido', async () => {
+    it('não deve enviar vcHash nem subjectDid no payload', async () => {
       mockPost.mockResolvedValueOnce(mockGenerateResponse);
 
-      await service.generateAndSubmit(
-        mockVC,
-        'abc123hash',
-        privateInputs,
-        'verifier_bradesco',
-        2,
-        'did:key:z6MkSubject',
-      );
-
-      expect(mockPost).toHaveBeenCalledWith(
-        '/public/proof/generate-and-submit',
-        expect.objectContaining({ subjectDid: 'did:key:z6MkSubject' }),
-      );
-    });
-
-    it('não deve incluir subjectDid quando omitido', async () => {
-      mockPost.mockResolvedValueOnce(mockGenerateResponse);
-
-      await service.generateAndSubmit(mockVC, 'abc123hash', privateInputs, 'verifier_bradesco', 2);
+      await service.generateAndSubmit(mockVC, privateInputs, 'verifier_bradesco', 2, 'challenge-hex-123');
 
       const payload = mockPost.mock.calls[0][1] as Record<string, unknown>;
+      expect(payload).not.toHaveProperty('vcHash');
       expect(payload).not.toHaveProperty('subjectDid');
     });
 
@@ -139,7 +122,7 @@ describe('ProofsService', () => {
       );
 
       await expect(
-        service.generateAndSubmit(mockVC, 'abc123hash', privateInputs, 'verifier_bradesco', 3),
+        service.generateAndSubmit(mockVC, privateInputs, 'verifier_bradesco', 3, 'challenge-hex-123'),
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 
@@ -147,7 +130,7 @@ describe('ProofsService', () => {
       mockPost.mockRejectedValueOnce(new VestaSDKError(422, 'Credential is expired'));
 
       await expect(
-        service.generateAndSubmit(mockVC, 'abc123hash', privateInputs, 'verifier_bradesco', 2),
+        service.generateAndSubmit(mockVC, privateInputs, 'verifier_bradesco', 2, 'challenge-hex-123'),
       ).rejects.toMatchObject({ statusCode: 422, apiMessage: 'Credential is expired' });
     });
   });
@@ -168,7 +151,6 @@ describe('ProofsService', () => {
       publicSignals: ['2', '1'],
       verifierId: 'verifier_bradesco',
       vcHash: 'abc123hash',
-      minKycLevel: 2,
     };
 
     it('deve chamar POST /proofs/submit com o payload completo', async () => {

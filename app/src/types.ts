@@ -190,8 +190,6 @@ export interface ValidateCredentialRequest {
   verifierId: string;
   /** Nível mínimo de KYC exigido: 1=basic, 2=intermediate, 3=complete. */
   minKycLevel: number;
-  /** DID do sujeito (opcional, herdado da VC se omitido). */
-  subjectDid?: string;
 }
 
 /** Parâmetros para consultar o status de uma credencial pelo hash. */
@@ -221,8 +219,6 @@ export interface SubmitProofRequest {
   verifierId: string;
   /** Hash SHA-256 da VC associada à prova. */
   vcHash: string;
-  /** Nível mínimo de KYC exigido: 1=basic, 2=intermediate, 3=complete. */
-  minKycLevel: number;
 }
 
 // ─── Responses ────────────────────────────────────────────────────────────────
