@@ -8,6 +8,23 @@
 // ─── Enums e primitivos ───────────────────────────────────────────────────────
 
 /**
+ * Ambiente de execução do SDK.
+ * Determina a URL base da API Vesta.
+ *
+ * @example
+ * const sdk = new VestaSDK({
+ *   apiKey: 'key',
+ *   environment: VestaEnvironment.PRODUCTION,
+ * });
+ */
+export enum VestaEnvironment {
+  /** Ambiente de homologação — https://vesta.trust-staging.com */
+  STAGING = 'staging',
+  /** Ambiente de produção — https://vesta.trust.com */
+  PRODUCTION = 'production',
+}
+
+/**
  * Nível de KYC suportado pela Vesta.
  * - basic: verificação documental simples
  * - intermediate: validação adicional (ex: comprovante de renda)
@@ -114,6 +131,11 @@ export interface VestaSDKConfig {
   /** ID do emissor enviado no corpo das requisições de emissão de credencial. */
   issuerId?: string;
   /**
+   * Ambiente de execução. Determina a URL base da API.
+   * Padrão: `VestaEnvironment.STAGING`.
+   */
+  environment?: VestaEnvironment;
+  /**
    * Relying Party ID para WebAuthn.
    * Padrão: window.location.hostname.
    * Deve ser igual ao domínio onde o SDK está sendo executado.
@@ -168,8 +190,6 @@ export interface ValidateCredentialRequest {
   verifierId: string;
   /** Nível mínimo de KYC exigido: 1=basic, 2=intermediate, 3=complete. */
   minKycLevel: number;
-  /** DID do sujeito (opcional, herdado da VC se omitido). */
-  subjectDid?: string;
 }
 
 /** Parâmetros para consultar o status de uma credencial pelo hash. */
@@ -199,8 +219,6 @@ export interface SubmitProofRequest {
   verifierId: string;
   /** Hash SHA-256 da VC associada à prova. */
   vcHash: string;
-  /** Nível mínimo de KYC exigido: 1=basic, 2=intermediate, 3=complete. */
-  minKycLevel: number;
 }
 
 // ─── Responses ────────────────────────────────────────────────────────────────

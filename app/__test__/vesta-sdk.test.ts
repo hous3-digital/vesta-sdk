@@ -277,9 +277,11 @@ describe('VestaSDK', () => {
       const [, options] = fetchMock.mock.calls[2] as [string, RequestInit];
       const body = JSON.parse(options.body as string) as Record<string, unknown>;
       expect(body['vc']).toEqual(mockVC);
-      expect(body['vcHash']).toBe(TEST_VC_HASH);
       expect(body['verifierId']).toBe('verifier_bradesco');
       expect(body['minKycLevel']).toBe(2);
+      expect(body['challenge']).toBeDefined();
+      expect(body).not.toHaveProperty('vcHash');
+      expect(body).not.toHaveProperty('subjectDid');
     });
   });
 
@@ -352,7 +354,6 @@ describe('VestaSDK', () => {
         publicSignals: ['2', '1'],
         verifierId: 'verifier_bradesco',
         vcHash: TEST_VC_HASH,
-        minKycLevel: 2,
       });
 
       expect(result.verified).toBe(true);

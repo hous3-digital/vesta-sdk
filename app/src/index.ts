@@ -25,6 +25,7 @@
 
 export { VestaSDK } from './vesta-sdk';
 export { VestaSDKError } from './http/client';
+export { VestaEnvironment } from './types';
 
 export type {
   // Configuração
