@@ -1,4 +1,4 @@
-import { createHttpClient } from './http/client';
+import { createHttpClient, resolveBaseUrl } from './http/client';
 import { CredentialsService } from './credentials/credentials.service';
 import { ProofsService } from './proofs/proofs.service';
 import { PasskeyService } from './passkey/passkey.service';
@@ -28,11 +28,12 @@ import type {
  *
  * ## Uso básico
  * ```typescript
- * import { VestaSDK } from '@hous3-digital/vesta-sdk';
+ * import { VestaSDK, VestaEnvironment } from '@hous3-digital/vesta-sdk';
  *
  * const sdk = new VestaSDK({
  *   apiKey: 'vesta_live_abc123',
  *   issuerId: 'bradesco',
+ *   environment: VestaEnvironment.PRODUCTION,
  * });
  *
  * // 1. Emitir e registrar credencial no Passkey do dispositivo
@@ -57,22 +58,45 @@ export class VestaSDK {
   private readonly credentials: CredentialsService;
   private readonly proofs: ProofsService;
   private readonly passkey: PasskeyService;
+  private _busy = false;
 
   /**
    * Instancia o SDK com as configurações do integrador.
    *
-   * @param config - API key, issuer ID e rpId opcionais.
+   * @param config - API key, environment, issuer ID e rpId opcionais.
    *
    * @example
    * const sdk = new VestaSDK({
    *   apiKey: 'vesta_live_abc123',
+   *   environment: VestaEnvironment.PRODUCTION,
    * });
    */
   constructor(config: VestaSDKConfig) {
     const http = createHttpClient(config);
+    const baseUrl = resolveBaseUrl(config);
     this.credentials = new CredentialsService(http, config.issuerId);
     this.proofs = new ProofsService(http);
-    this.passkey = new PasskeyService(config.rpId);
+    this.passkey = new PasskeyService(config.rpId, baseUrl);
+  }
+
+  // ─── Mutex — proteção contra chamadas simultâneas ─────────────────────────
+
+  /**
+   * Executa uma operação garantindo que apenas uma operação multi-step
+   * rode por vez. Previne duplicação por double-click.
+   */
+  private async guard<T>(fn: () => Promise<T>): Promise<T> {
+    if (this._busy) {
+      throw new Error(
+        'VestaSDK: Operação em andamento. Aguarde a conclusão antes de chamar novamente.',
+      );
+    }
+    this._busy = true;
+    try {
+      return await fn();
+    } finally {
+      this._busy = false;
+    }
   }
 
   // ─── 1. Emissão ───────────────────────────────────────────────────────────
@@ -90,21 +114,17 @@ export class VestaSDK {
    * @returns Resposta da API com a VC emitida, mais o `passkeyCredentialId` criado.
    * @throws {VestaSDKError} 400 se os dados forem inválidos.
    * @throws {VestaSDKError} 401 se a API key for inválida.
+   * @throws {VestaSDKError} 409 se o CPF já possuir credencial ativa.
    * @throws {Error} Se o usuário cancelar o prompt de criação do Passkey.
-   *   Neste caso, a VC foi emitida mas não foi armazenada no dispositivo.
-   *
-   * @example
-   * const issued = await sdk.issueCredential({
-   *   cpf: '12345678900',
-   *   fullName: 'João da Silva',
-   *   birthDate: '1990-03-15',
-   *   kycLevel: 'complete',
-   *   kycMethod: 'biometric_plus_document',
-   * });
-   * console.log('VC emitida:', issued.vcHash);
-   * console.log('Passkey criado:', issued.passkeyCredentialId);
+   * @throws {Error} Se outra operação já estiver em andamento (double-click).
    */
   async issueCredential(
+    req: IssueCredentialRequest,
+  ): Promise<IssueCredentialResponse & PasskeyRegistrationResult> {
+    return this.guard(() => this._issueCredential(req));
+  }
+
+  private async _issueCredential(
     req: IssueCredentialRequest,
   ): Promise<IssueCredentialResponse & PasskeyRegistrationResult> {
     const issueResponse = await this.credentials.issue(req);
@@ -131,48 +151,33 @@ export class VestaSDK {
    * O SDK autentica o usuário via Passkey para recuperar a VC internamente —
    * o cliente **não precisa conhecer ou fornecer o vcHash**.
    *
-   * O processo completo:
-   * 1. Solicita autenticação via Passkey (prompt nativo do browser).
-   * 2. Recupera a VC armazenada no IndexedDB usando o vcHash da assertion.
-   * 3. Envia a VC, os inputs privados e os parâmetros de verificação ao backend.
-   * 4. O backend gera a prova ZK Groth16 e submete ao contrato Soroban.
-   * 5. Retorna o resultado da verificação on-chain.
-   *
    * @param req - Inputs privados do circuito ZK, verifierId e minKycLevel.
-   *   **Não inclui vcHash ou vc** — recuperados automaticamente via Passkey.
    * @returns Resultado da verificação com detalhes da prova ZK e transação Stellar.
    * @throws {Error} Se o usuário cancelar o prompt de autenticação Passkey.
-   * @throws {Error} Se não houver credencial armazenada para o Passkey autenticado.
    * @throws {VestaSDKError} 400 se o nível de KYC for insuficiente.
-   * @throws {VestaSDKError} 401 se a API key for inválida.
    * @throws {VestaSDKError} 422 se a VC estiver expirada.
-   *
-   * @example
-   * const result = await sdk.validateCredential({
-   *   privateInputs: {
-   *     cpf: '12345678900',
-   *     birthDate: '19900315',   // YYYYMMDD
-   *     fullName: 'JOAO SILVA',  // maiúsculas
-   *   },
-   *   verifierId: 'verifier_bradesco',
-   *   minKycLevel: 2,
-   * });
-   * if (result.verified) {
-   *   console.log('KYC verificado on-chain!', result.stellar.txHash);
-   * }
+   * @throws {Error} Se outra operação já estiver em andamento (double-click).
    */
   async validateCredential(req: ValidateCredentialRequest): Promise<GenerateAndSubmitResponse> {
-    // Autentica via Passkey e recupera a VC + o challenge server-side usado
+    return this.guard(() => this._validateCredential(req));
+  }
+
+  private async _validateCredential(req: ValidateCredentialRequest): Promise<GenerateAndSubmitResponse> {
     const stored = await this.passkey.authenticate();
+
+    if (!stored.challengeUsed) {
+      throw new Error(
+        'VestaSDK: Challenge não foi obtido durante a autenticação Passkey. ' +
+        'Isso indica uma falha no endpoint GET /public/auth/challenge.',
+      );
+    }
 
     return this.proofs.generateAndSubmit(
       stored.vc,
-      stored.vcHash,
       req.privateInputs,
       req.verifierId,
       req.minKycLevel,
-      req.subjectDid,
-      stored.challengeUsed, // enviado à API para verificação anti-replay
+      stored.challengeUsed,
     );
   }
 
@@ -187,12 +192,6 @@ export class VestaSDK {
    * @param req - Objeto com o `vcHash` a ser verificado.
    * @returns Status de validade, nível de KYC e nonce de desafio (se válida).
    * @throws {VestaSDKError} 404 se a credencial não existir.
-   *
-   * @example
-   * const status = await sdk.checkCredentialStatus({ vcHash: 'a1b2c3...' });
-   * if (!status.valid) {
-   *   console.warn('Motivo:', status.reason); // "revoked" | "expired"
-   * }
    */
   async checkCredentialStatus(req: VerifyCredentialRequest): Promise<VerifyCredentialResponse> {
     return this.credentials.verify(req);
@@ -204,20 +203,11 @@ export class VestaSDK {
    * Revoga uma credencial existente, tornando-a permanentemente inválida.
    *
    * Após a revogação, todas as verificações ZK dessa VC falharão.
-   * A operação é irreversível no backend — a credencial local no IndexedDB
-   * permanece e deve ser removida manualmente via `deleteStoredCredential`.
    *
    * @param req - Hash da VC a revogar e motivo opcional.
    * @returns Confirmação da revogação.
-   * @throws {VestaSDKError} 401 se a API key for inválida.
    * @throws {VestaSDKError} 404 se a credencial não existir.
    * @throws {VestaSDKError} 400 se a credencial já estiver revogada.
-   *
-   * @example
-   * await sdk.revokeCredential({
-   *   vcHash: 'a1b2c3...',
-   *   reason: 'fraudulent_documents',
-   * });
    */
   async revokeCredential(req: RevokeCredentialRequest): Promise<RevokeCredentialResponse> {
     return this.credentials.revoke(req);
@@ -228,19 +218,9 @@ export class VestaSDK {
   /**
    * Autentica o usuário via Passkey e retorna a VC armazenada no dispositivo.
    *
-   * O browser exibirá o prompt nativo de autenticação.
-   * O usuário seleciona o Passkey desejado, e o SDK recupera
-   * automaticamente a VC associada do IndexedDB.
-   *
    * @returns StoredCredential com a VC completa e metadados de armazenamento.
    * @throws {Error} Se o usuário cancelar a autenticação.
    * @throws {Error} Se não houver credencial armazenada para o Passkey autenticado.
-   * @throws {Error} Se WebAuthn não for suportado no ambiente.
-   *
-   * @example
-   * const stored = await sdk.getStoredCredential();
-   * console.log('VC:', stored.vc.id);
-   * console.log('Armazenada em:', stored.storedAt);
    */
   async getStoredCredential(): Promise<StoredCredential> {
     return this.passkey.authenticate();
@@ -251,24 +231,10 @@ export class VestaSDK {
   /**
    * Submete uma prova Groth16 já gerada externamente ao contrato Soroban.
    *
-   * Use este método quando a geração da prova ZK ocorre fora do SDK —
-   * por exemplo, em um ambiente seguro do lado do servidor ou em um
-   * circuito customizado.
-   *
    * @param req - Prova pré-computada, sinais públicos, verifierId e vcHash.
    * @returns Resultado da verificação on-chain.
-   * @throws {VestaSDKError} 401 se a API key for inválida.
    * @throws {VestaSDKError} 404 se a credencial referenciada não existir.
    * @throws {VestaSDKError} 422 se a credencial estiver expirada.
-   *
-   * @example
-   * const result = await sdk.submitProof({
-   *   proof: myGroth16Proof,
-   *   publicSignals: ['2', '1'],
-   *   verifierId: 'verifier_bradesco',
-   *   vcHash: 'a1b2c3...',
-   *   minKycLevel: 2,
-   * });
    */
   async submitProof(req: SubmitProofRequest): Promise<GenerateAndSubmitResponse> {
     return this.proofs.submit(req);
@@ -278,13 +244,6 @@ export class VestaSDK {
 
   /**
    * Verifica se o dispositivo e browser suportam WebAuthn/Passkeys.
-   *
-   * @returns `true` se Passkeys estiverem disponíveis.
-   *
-   * @example
-   * if (!sdk.isPasskeySupported()) {
-   *   // Mostrar mensagem de fallback ou alternativa
-   * }
    */
   isPasskeySupported(): boolean {
     return this.passkey.isSupported();
@@ -293,13 +252,7 @@ export class VestaSDK {
   /**
    * Remove uma credencial do armazenamento local do dispositivo.
    *
-   * Atenção: remove apenas o IndexedDB — o WebAuthn credential no autenticador
-   * não é removido automaticamente.
-   *
    * @param vcHash - Hash SHA-256 da VC a remover do armazenamento local.
-   *
-   * @example
-   * await sdk.deleteStoredCredential('a1b2c3...');
    */
   async deleteStoredCredential(vcHash: string): Promise<void> {
     return this.passkey.deleteStored(vcHash);
@@ -307,12 +260,6 @@ export class VestaSDK {
 
   /**
    * Lista os vcHashes de todas as credenciais armazenadas no dispositivo.
-   *
-   * @returns Array de vcHashes presentes no IndexedDB local.
-   *
-   * @example
-   * const hashes = await sdk.listStoredCredentials();
-   * console.log(`${hashes.length} credencial(is) no dispositivo.`);
    */
   async listStoredCredentials(): Promise<string[]> {
     return this.passkey.getStoredHashes();
@@ -325,12 +272,6 @@ export class VestaSDK {
    *
    * Use este método para decidir na UI se o fluxo de KYC deve ser exibido
    * antes de chamar `smartEnroll()`.
-   *
-   * @returns `true` se pelo menos uma VC estiver armazenada no IndexedDB.
-   *
-   * @example
-   * const needsKyc = !(await sdk.hasStoredCredential());
-   * if (needsKyc) showKycModal();
    */
   async hasStoredCredential(): Promise<boolean> {
     const hashes = await this.passkey.getStoredHashes();
@@ -343,51 +284,25 @@ export class VestaSDK {
    * O SDK decide automaticamente qual fluxo executar com base na presença
    * de uma VC no dispositivo:
    *
-   * **Usuário novo (sem VC no dispositivo):**
-   * 1. Emite uma nova VC via `POST /credentials` usando `params.userData`.
-   * 2. Registra um Passkey no dispositivo vinculado à nova VC.
-   * 3. Retorna `{ isNewUser: true, authenticated: true }`.
-   *
-   * **Usuário recorrente (VC existente no dispositivo):**
-   * 1. Solicita autenticação via Passkey (biometria/PIN do dispositivo).
-   * 2. Recupera a VC armazenada automaticamente via `userHandle`.
-   * 3. Gera prova ZK Groth16 e verifica on-chain na Stellar via `POST /proofs/generate-and-submit`.
-   * 4. Retorna `{ isNewUser: false, authenticated: result.verified, txHash }`.
-   *
-   * **Importante:** Para o melhor UX, chame `hasStoredCredential()` antes
-   * para saber se o modal de KYC deve ser exibido, depois chame `smartEnroll()`.
+   * **Usuário novo (sem VC):** Emite VC + registra Passkey.
+   * **Usuário recorrente (VC existente):** Autentica via Passkey + valida on-chain.
    *
    * @param params - Dados para criação de nova VC e/ou validação da existente.
    * @returns Resultado com status de autenticação, se é novo usuário e txHash opcional.
    * @throws {VestaSDKError} Se a API retornar erro.
    * @throws {Error} Se o usuário cancelar o prompt de Passkey.
-   *
-   * @example
-   * // 1. Checar antes para mostrar modal de KYC na UI
-   * const needsKyc = !(await sdk.hasStoredCredential());
-   * if (needsKyc) showKycModal();
-   *
-   * // 2. Executar fluxo (criação ou validação, decidido internamente)
-   * const result = await sdk.smartEnroll({
-   *   userData: {
-   *     cpf: '12345678900', fullName: 'João da Silva',
-   *     birthDate: '1990-03-15', kycLevel: 'complete',
-   *     kycMethod: 'biometric_plus_document',
-   *   },
-   *   privateInputs: { cpf: '12345678900', birthDate: '19900315', fullName: 'JOAO SILVA' },
-   *   verifierId: 'verifier_banco_vesta',
-   *   minKycLevel: 2,
-   * });
-   *
-   * hideKycModal();
-   * if (result.authenticated) showSuccessScreen(result);
+   * @throws {Error} Se outra operação já estiver em andamento (double-click).
    */
   async smartEnroll(params: SmartEnrollParams): Promise<SmartEnrollResult> {
+    return this.guard(() => this._smartEnroll(params));
+  }
+
+  private async _smartEnroll(params: SmartEnrollParams): Promise<SmartEnrollResult> {
     const hasVC = await this.hasStoredCredential();
 
     if (!hasVC) {
       // ── Fluxo novo usuário: emite VC + registra Passkey ──────────────────
-      const issued = await this.issueCredential(params.userData);
+      const issued = await this._issueCredential(params.userData);
       return {
         authenticated: true,
         isNewUser: true,
@@ -397,7 +312,7 @@ export class VestaSDK {
     }
 
     // ── Fluxo usuário recorrente: valida VC existente on-chain ────────────
-    const validation = await this.validateCredential({
+    const validation = await this._validateCredential({
       privateInputs: params.privateInputs,
       verifierId: params.verifierId,
       minKycLevel: params.minKycLevel,
