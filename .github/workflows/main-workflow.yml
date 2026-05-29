@@ -127,7 +127,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           npx semantic-release
-          
+
           # Captura a versão criada pela release
           VERSION=$(node -p "require('./package.json').version")
           echo "release_version=$VERSION" >> $GITHUB_OUTPUT
@@ -233,7 +233,7 @@ jobs:
         run: |
           set -euo pipefail
           cd app
-          
+
           # Check if version already exists in registry (will fail if exists)
           if ! npm publish 2>&1 | tee publish.log; then
             # Check for duplicate version errors first (most common in reruns)
@@ -265,7 +265,7 @@ jobs:
               exit 1
             fi
           fi
-          
+
           echo "✅ Successfully published to GitHub Packages"
 
       - name: Setup Node for npmjs.com
@@ -290,7 +290,7 @@ jobs:
           echo "@hous3-digital:registry=https://registry.npmjs.org/" > .npmrc
           echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> .npmrc
           echo "registry=https://registry.npmjs.org/" >> .npmrc
-          
+
           echo "📄 .npmrc configured for npmjs.com:"
           cat .npmrc
 
@@ -299,7 +299,7 @@ jobs:
         run: |
           set -euo pipefail
           cd app
-          
+
           if ! npm publish --access public 2>&1 | tee publish-npm.log; then
             # Check for duplicate version errors first (most common in reruns)
             if grep -qi "cannot publish over" publish-npm.log || \
@@ -330,5 +330,5 @@ jobs:
               exit 1
             fi
           fi
-          
+
           echo "✅ Successfully published to npmjs.com"
