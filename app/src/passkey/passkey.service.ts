@@ -32,18 +32,21 @@ const CHALLENGE_TIMEOUT_MS = 10_000;
 export class PasskeyService {
   private readonly rpId: string;
   private readonly baseUrl: string;
+  private readonly apiKey: string;
 
   /**
    * @param rpId - Relying Party ID para WebAuthn.
    *   Deve ser igual ao domínio atual (ou um sufixo registrável).
    *   Padrão: `window.location.hostname` (ou `'localhost'` em testes).
    * @param baseUrl - URL base da API Vesta (resolvida a partir do environment).
+   * @param apiKey - API key para autenticação nas requisições ao servidor.
    */
-  constructor(rpId: string | undefined, baseUrl: string) {
+  constructor(rpId: string | undefined, baseUrl: string, apiKey: string) {
     this.rpId =
       rpId ??
       (typeof window !== 'undefined' ? window.location.hostname : 'localhost');
     this.baseUrl = baseUrl;
+    this.apiKey = apiKey;
   }
 
   // ─── API pública ─────────────────────────────────────────────────────────
@@ -373,7 +376,11 @@ export class PasskeyService {
 
     let response: Response;
     try {
-      response = await fetch(url, { method: 'GET', signal: controller.signal });
+      response = await fetch(url, {
+        method: 'GET',
+        headers: { 'X-Api-Key': this.apiKey },
+        signal: controller.signal,
+      });
     } catch (err) {
       clearTimeout(timeoutId);
       if (err instanceof DOMException && err.name === 'AbortError') {
