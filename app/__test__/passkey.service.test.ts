@@ -105,7 +105,7 @@ describe('PasskeyService', () => {
   let service: PasskeyService;
 
   beforeEach(() => {
-    service = new PasskeyService('localhost', 'https://vesta.trust-staging.com');
+    service = new PasskeyService('localhost', 'https://vesta.trust-staging.com', 'vesta_live_test_key');
   });
 
   // ── isSupported ────────────────────────────────────────────────────────────
@@ -262,7 +262,7 @@ describe('PasskeyService', () => {
   describe('getStoredHashes()', () => {
     it('deve retornar array vazio quando não há credenciais armazenadas', async () => {
       // Cria uma nova instância para ter IDB limpo neste contexto
-      const freshService = new PasskeyService('localhost', 'https://vesta.trust-staging.com');
+      const freshService = new PasskeyService('localhost', 'https://vesta.trust-staging.com', 'vesta_live_test_key');
       const hashes = await freshService.getStoredHashes();
       // pode ter itens de testes anteriores — verificamos que é um array
       expect(Array.isArray(hashes)).toBe(true);
@@ -308,7 +308,7 @@ describe('PasskeyService', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       delete (window as any).PublicKeyCredential;
 
-      const unsupportedService = new PasskeyService('localhost', 'https://vesta.trust-staging.com');
+      const unsupportedService = new PasskeyService('localhost', 'https://vesta.trust-staging.com', 'vesta_live_test_key');
       await expect(unsupportedService.register(mockVC, TEST_VC_HASH)).rejects.toThrow(
         'WebAuthn/Passkeys não é suportado',
       );

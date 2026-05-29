@@ -76,7 +76,7 @@ export class VestaSDK {
     const baseUrl = resolveBaseUrl(config);
     this.credentials = new CredentialsService(http, config.issuerId);
     this.proofs = new ProofsService(http);
-    this.passkey = new PasskeyService(config.rpId, baseUrl);
+    this.passkey = new PasskeyService(config.rpId, baseUrl, config.apiKey);
   }
 
   // ─── Mutex — proteção contra chamadas simultâneas ─────────────────────────
