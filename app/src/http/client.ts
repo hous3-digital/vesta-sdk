@@ -37,7 +37,7 @@ export class VestaSDKError extends Error {
 /** Mapa de URLs da API por ambiente. */
 const VESTA_URLS: Record<VestaEnvironment, string> = {
   [VestaEnvironment.STAGING]: 'https://vesta.trust-staging.com',
-  [VestaEnvironment.PRODUCTION]: 'https://vesta.trust.com',
+  [VestaEnvironment.PRODUCTION]: 'https://vesta.hous3-trust.com',
 };
 
 /** Timeout padrão para requisições POST (30s). */

@@ -1,4 +1,4 @@
-import { createHttpClient, resolveBaseUrl } from './http/client';
+import { createHttpClient, resolveBaseUrl, VestaSDKError } from './http/client';
 import { CredentialsService } from './credentials/credentials.service';
 import { ProofsService } from './proofs/proofs.service';
 import { PasskeyService } from './passkey/passkey.service';
@@ -268,14 +268,71 @@ export class VestaSDK {
   // ─── 8. Smart Enroll ─────────────────────────────────────────────────────
 
   /**
-   * Verifica se há alguma Credencial Verificável armazenada no dispositivo.
+   * Verifica se há alguma Credencial Verificável armazenada **localmente** no
+   * dispositivo (Passkey/IndexedDB), sem consultar o backend.
+   *
+   * ⚠️ Esse método é local-only. Se o usuário tem uma VC no Passkey emitida
+   * contra **outro ambiente** (ex.: testnet/staging) e você está rodando
+   * contra **mainnet/produção**, esse método retorna `true`, mas a VC não
+   * existirá no backend atual e o `smartEnroll()` falharia ao validá-la.
+   * Para checagem cross-environment, use {@link hasRegisteredCredential}.
    *
    * Use este método para decidir na UI se o fluxo de KYC deve ser exibido
-   * antes de chamar `smartEnroll()`.
+   * antes de chamar `smartEnroll()` — apenas quando você tem certeza de que
+   * todos os hashes locais foram emitidos contra o mesmo ambiente atual.
    */
   async hasStoredCredential(): Promise<boolean> {
     const hashes = await this.passkey.getStoredHashes();
     return hashes.length > 0;
+  }
+
+  /**
+   * Verifica se há alguma VC armazenada localmente **que também exista no
+   * backend do ambiente atual**.
+   *
+   * Itera pelos `vcHash` no Passkey e consulta `POST /public/credential/verify`
+   * para cada um até encontrar um que retorne 200. VCs locais que retornam 404
+   * (órfãs — emitidas contra outro ambiente) são ignoradas silenciosamente.
+   *
+   * Este é o método recomendado para decidir na UI se mostrar o fluxo de KYC
+   * de novo usuário ou o fluxo "port credential" — pois evita o caso em que
+   * o usuário tem uma VC testnet no Passkey mas está acessando o demo em
+   * mainnet (cenário em que a VC local não corresponde a nada no backend).
+   *
+   * @returns `true` se existir ao menos um vcHash local registrado no backend.
+   * @throws {VestaSDKError} Erros de rede ou status HTTP que não sejam 404.
+   */
+  async hasRegisteredCredential(): Promise<boolean> {
+    const vcHash = await this.findRegisteredVcHash();
+    return vcHash !== null;
+  }
+
+  /**
+   * Itera pelos hashes locais e retorna o primeiro que existe no backend do
+   * ambiente atual. Retorna `null` se nenhum estiver registrado.
+   *
+   * @internal Exposto para permitir que o consumidor evite chamar duas vezes
+   * o endpoint de verify (uma em `hasRegisteredCredential` outra ao decidir
+   * qual VC usar). Para a maioria dos usos, prefira `hasRegisteredCredential`.
+   */
+  async findRegisteredVcHash(): Promise<string | null> {
+    const hashes = await this.passkey.getStoredHashes();
+    if (hashes.length === 0) return null;
+
+    for (const vcHash of hashes) {
+      try {
+        await this.credentials.verify({ vcHash });
+        return vcHash;
+      } catch (err) {
+        if (err instanceof VestaSDKError && err.statusCode === 404) {
+          // VC local não existe no backend atual — provavelmente foi emitida
+          // contra outro ambiente (ex.: testnet). Tenta a próxima.
+          continue;
+        }
+        throw err;
+      }
+    }
+    return null;
   }
 
   /**
@@ -298,9 +355,13 @@ export class VestaSDK {
   }
 
   private async _smartEnroll(params: SmartEnrollParams): Promise<SmartEnrollResult> {
-    const hasVC = await this.hasStoredCredential();
+    // Confere se há VC local que ESTÁ registrada no backend do ambiente atual.
+    // VCs locais emitidas contra outro ambiente (ex.: testnet quando estamos
+    // em mainnet) são tratadas como inexistentes — o fluxo de novo usuário é
+    // disparado em vez de tentar validar uma VC que o backend não conhece.
+    const registeredVcHash = await this.findRegisteredVcHash();
 
-    if (!hasVC) {
+    if (!registeredVcHash) {
       // ── Fluxo novo usuário: emite VC + registra Passkey ──────────────────
       const issued = await this._issueCredential(params.userData);
       return {
