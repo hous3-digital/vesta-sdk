@@ -40,8 +40,8 @@ const VESTA_URLS: Record<VestaEnvironment, string> = {
   [VestaEnvironment.PRODUCTION]: 'https://vesta.hous3-trust.com',
 };
 
-/** Timeout padrão para requisições POST (30s). */
-const DEFAULT_TIMEOUT_MS = 30_000;
+/** Timeout padrão para requisições POST (60s). */
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 /**
  * Resolve a URL base da API a partir da configuração do SDK.
