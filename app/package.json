@@ -1,6 +1,6 @@
 {
   "name": "@hous3-digital/vesta-sdk",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "SKD Vesta para integração com a API da Vesta",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
