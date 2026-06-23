@@ -40,9 +40,23 @@ export class WalletService {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async (): Promise<void> => {
-      // Import dinâmico para evitar carga no bundle quando Privy não é usado
-      const { PrivyClient } = await import('@privy-io/js-sdk-core');
-      this.privy = new PrivyClient({
+      // Dynamic import + untyped resolution: the @privy-io/js-sdk-core API
+      // surface is in flux (Privy is still iterating on Stellar support). We
+      // intentionally avoid baking in a specific export shape; instead, we
+      // probe common entry points (PrivyClient, Privy, default) and let the
+      // first one that's a constructor win. Runtime will throw a clear error
+      // if none match — calling code falls back to the legacy flow.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mod = (await import('@privy-io/js-sdk-core')) as unknown as Record<string, any>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const PrivyCtor: any = mod.PrivyClient ?? mod.Privy ?? mod.default;
+      if (typeof PrivyCtor !== 'function') {
+        throw new Error(
+          'WalletService: nenhum construtor Privy encontrado em @privy-io/js-sdk-core. ' +
+            'Verifique a versão instalada e o nome do export.',
+        );
+      }
+      this.privy = new PrivyCtor({
         appId: PRIVY_APP_ID,
         // Headless: sem UI, sem prompts adicionais. Auth é via custom token.
         embeddedWallets: {
