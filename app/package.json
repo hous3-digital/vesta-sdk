@@ -67,7 +67,7 @@
     "access": "restricted"
   },
   "dependencies": {
-    "@privy-io/js-sdk-core": "^0.40.0",
+    "@privy-io/js-sdk-core": "^0.67.4",
     "@stellar/stellar-sdk": "^15.1.0"
   },
   "resolutions": {
