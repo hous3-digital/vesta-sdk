@@ -310,8 +310,51 @@ export interface AttestationDetails {
   verifierId: string;
   /** Nível de KYC verificado. */
   kycLevel: KycLevel;
+  /**
+   * Endereço Stellar (G...) da wallet do usuário que assinou a tx, quando
+   * o issuer está com `privyEnabled = true`. Null no fluxo legado interno.
+   */
+  userWalletAddress: string | null;
   /** Timestamp ISO 8601 de criação. */
   createdAt: string;
+}
+
+/**
+ * Requisição da fase 1 do fluxo de validação on-chain.
+ * Não exposta diretamente — usada internamente pelo SDK em `validateCredential`.
+ */
+export interface PrepareProofRequest {
+  vc: VestaVC;
+  privateInputs: {
+    cpf: string;
+    birthDate: string;
+    fullName: string;
+  };
+  verifierId: string;
+  minKycLevel: number;
+  challenge: string;
+}
+
+/**
+ * Resposta da fase 1. O SDK usa `requiresUserSignature` para decidir
+ * se deve assinar via Privy ou apenas repassar o XDR.
+ */
+export interface PrepareProofResponse {
+  prepareSessionId: string;
+  unsignedTxXdr: string;
+  requiresUserSignature: boolean;
+  userWalletAddress: string | null;
+  zkProof: ZkProofDetails;
+}
+
+/**
+ * Requisição da fase 2. Inclui o XDR assinado e (opcionalmente) o identity
+ * token Privy quando a fase 1 indicou `requiresUserSignature: true`.
+ */
+export interface SubmitSignedProofRequest {
+  prepareSessionId: string;
+  signedTxXdr: string;
+  privyIdentityToken?: string;
 }
 
 /** Resposta completa da geração e submissão de prova ZK. */

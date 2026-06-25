@@ -1,6 +1,6 @@
 {
   "name": "@hous3-digital/vesta-sdk",
-  "version": "1.4.1",
+  "version": "2.0.0",
   "description": "SKD Vesta para integração com a API da Vesta",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
@@ -18,7 +18,10 @@
     }
   },
   "scripts": {
+    "postinstall": "node scripts/generate-privy-config.js",
+    "prebuild": "node scripts/generate-privy-config.js",
     "build": "tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json",
+    "pretest": "node scripts/generate-privy-config.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
@@ -63,5 +66,13 @@
     "registry": "https://npm.pkg.github.com/",
     "access": "restricted"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@privy-io/js-sdk-core": "^0.67.4",
+    "@stellar/stellar-sdk": "^15.1.0"
+  },
+  "resolutions": {
+    "axios": ">=1.16.0",
+    "ws": ">=8.21.0",
+    "uuid": ">=11.0.0"
+  }
 }

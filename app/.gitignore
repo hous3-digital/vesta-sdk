@@ -7,8 +7,14 @@ dist/
 !src/**/*
 !*.config.js
 !jest.setup.js
+!scripts/*.js
 .npmrc
 *.log
 .env
+.env.local
 .DS_Store
 .secrets
+
+# Privy app id is injected at build time by scripts/generate-privy-config.js.
+# The real value MUST NOT appear in git diffs — only the template is versioned.
+src/wallet/privy.config.generated.ts

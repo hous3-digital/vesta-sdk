@@ -86,7 +86,9 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
-      - run: |
+      - env:
+          PRIVY_APP_ID: ${{ secrets.PRIVY_APP_ID }}
+        run: |
           cd app
           yarn
           yarn build
@@ -195,6 +197,8 @@ jobs:
           yarn
 
       - name: Build TypeScript
+        env:
+          PRIVY_APP_ID: ${{ secrets.PRIVY_APP_ID }}
         run: |
           cd app
           yarn build

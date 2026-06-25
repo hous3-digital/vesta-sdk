@@ -4,6 +4,7 @@ import type { HttpClient } from '../src/http/client';
 import type {
   GenerateAndSubmitResponse,
   Groth16Proof,
+  PrepareProofResponse,
   SubmitProofRequest,
   VestaVC,
 } from '../src/types';
@@ -36,7 +37,21 @@ const mockVC: VestaVC = {
   },
 };
 
-const mockGenerateResponse: GenerateAndSubmitResponse = {
+const mockPrepareResponse: PrepareProofResponse = {
+  prepareSessionId: 'prep_abc123',
+  unsignedTxXdr: 'AAAAAgAAAAA...',
+  requiresUserSignature: false,
+  userWalletAddress: null,
+  zkProof: {
+    protocol: 'groth16',
+    curve: 'bn128',
+    publicSignals: ['2', '1'],
+    proofHash: 'proof-hash-abc',
+    mock: true,
+  },
+};
+
+const mockSubmitResponse: GenerateAndSubmitResponse = {
   verified: true,
   zkProof: {
     protocol: 'groth16',
@@ -57,6 +72,7 @@ const mockGenerateResponse: GenerateAndSubmitResponse = {
     vcHash: 'abc123hash',
     verifierId: 'verifier_bradesco',
     kycLevel: 'intermediate',
+    userWalletAddress: null,
     createdAt: '2025-01-15T10:00:00Z',
   },
 };
@@ -76,40 +92,44 @@ describe('ProofsService', () => {
     service = new ProofsService(makeHttpClient(mockPost));
   });
 
-  // ── generateAndSubmit ──────────────────────────────────────────────────────
+  // ── prepare ────────────────────────────────────────────────────────────────
 
-  describe('generateAndSubmit()', () => {
+  describe('prepare()', () => {
     const privateInputs = { cpf: '12345678900', birthDate: '19900315', fullName: 'JOAO SILVA' };
 
-    it('deve chamar POST /proofs/generate-and-submit com vc, privateInputs e challenge', async () => {
-      mockPost.mockResolvedValueOnce(mockGenerateResponse);
+    it('deve chamar POST /public/proof/prepare com vc, privateInputs e challenge', async () => {
+      mockPost.mockResolvedValueOnce(mockPrepareResponse);
 
-      const result = await service.generateAndSubmit(
-        mockVC,
+      const result = await service.prepare({
+        vc: mockVC,
         privateInputs,
-        'verifier_bradesco',
-        2,
-        'challenge-hex-123',
-      );
+        verifierId: 'verifier_bradesco',
+        minKycLevel: 2,
+        challenge: 'challenge-hex-123',
+      });
 
       expect(mockPost).toHaveBeenCalledTimes(1);
-      expect(mockPost).toHaveBeenCalledWith(
-        '/public/proof/generate-and-submit',
-        {
-          vc: mockVC,
-          privateInputs,
-          verifierId: 'verifier_bradesco',
-          minKycLevel: 2,
-          challenge: 'challenge-hex-123',
-        },
-      );
-      expect(result.verified).toBe(true);
+      expect(mockPost).toHaveBeenCalledWith('/public/proof/prepare', {
+        vc: mockVC,
+        privateInputs,
+        verifierId: 'verifier_bradesco',
+        minKycLevel: 2,
+        challenge: 'challenge-hex-123',
+      });
+      expect(result.prepareSessionId).toBe('prep_abc123');
+      expect(result.unsignedTxXdr).toBeTruthy();
     });
 
     it('não deve enviar vcHash nem subjectDid no payload', async () => {
-      mockPost.mockResolvedValueOnce(mockGenerateResponse);
+      mockPost.mockResolvedValueOnce(mockPrepareResponse);
 
-      await service.generateAndSubmit(mockVC, privateInputs, 'verifier_bradesco', 2, 'challenge-hex-123');
+      await service.prepare({
+        vc: mockVC,
+        privateInputs,
+        verifierId: 'verifier_bradesco',
+        minKycLevel: 2,
+        challenge: 'challenge-hex-123',
+      });
 
       const payload = mockPost.mock.calls[0][1] as Record<string, unknown>;
       expect(payload).not.toHaveProperty('vcHash');
@@ -117,12 +137,16 @@ describe('ProofsService', () => {
     });
 
     it('deve propagar VestaSDKError 400 quando nível de KYC for insuficiente', async () => {
-      mockPost.mockRejectedValueOnce(
-        new VestaSDKError(400, 'KYC level insufficient: required 3, got 2'),
-      );
+      mockPost.mockRejectedValueOnce(new VestaSDKError(400, 'KYC level insufficient: required 3, got 2'));
 
       await expect(
-        service.generateAndSubmit(mockVC, privateInputs, 'verifier_bradesco', 3, 'challenge-hex-123'),
+        service.prepare({
+          vc: mockVC,
+          privateInputs,
+          verifierId: 'verifier_bradesco',
+          minKycLevel: 3,
+          challenge: 'challenge-hex-123',
+        }),
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 
@@ -130,12 +154,58 @@ describe('ProofsService', () => {
       mockPost.mockRejectedValueOnce(new VestaSDKError(422, 'Credential is expired'));
 
       await expect(
-        service.generateAndSubmit(mockVC, privateInputs, 'verifier_bradesco', 2, 'challenge-hex-123'),
+        service.prepare({
+          vc: mockVC,
+          privateInputs,
+          verifierId: 'verifier_bradesco',
+          minKycLevel: 2,
+          challenge: 'challenge-hex-123',
+        }),
       ).rejects.toMatchObject({ statusCode: 422, apiMessage: 'Credential is expired' });
     });
   });
 
-  // ── submit ─────────────────────────────────────────────────────────────────
+  // ── submitSigned ───────────────────────────────────────────────────────────
+
+  describe('submitSigned()', () => {
+    it('deve chamar POST /public/proof/submit-signed com prepareSessionId e signedTxXdr', async () => {
+      mockPost.mockResolvedValueOnce(mockSubmitResponse);
+
+      const result = await service.submitSigned({
+        prepareSessionId: 'prep_abc123',
+        signedTxXdr: 'AAAAAgAAAAA...signed',
+      });
+
+      expect(mockPost).toHaveBeenCalledWith('/public/proof/submit-signed', {
+        prepareSessionId: 'prep_abc123',
+        signedTxXdr: 'AAAAAgAAAAA...signed',
+      });
+      expect(result.verified).toBe(true);
+    });
+
+    it('deve incluir privyIdentityToken quando fornecido', async () => {
+      mockPost.mockResolvedValueOnce(mockSubmitResponse);
+
+      await service.submitSigned({
+        prepareSessionId: 'prep_abc123',
+        signedTxXdr: 'AAAAAgAAAAA...signed',
+        privyIdentityToken: 'token-xyz',
+      });
+
+      const payload = mockPost.mock.calls[0][1] as Record<string, unknown>;
+      expect(payload.privyIdentityToken).toBe('token-xyz');
+    });
+
+    it('deve propagar VestaSDKError 400 para sessão expirada', async () => {
+      mockPost.mockRejectedValueOnce(new VestaSDKError(400, 'prepareSessionId inválido'));
+
+      await expect(
+        service.submitSigned({ prepareSessionId: 'prep_expired', signedTxXdr: 'xdr' }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+  });
+
+  // ── submit (caso de uso externo, intacto) ──────────────────────────────────
 
   describe('submit()', () => {
     const mockProof: Groth16Proof = {
@@ -153,8 +223,8 @@ describe('ProofsService', () => {
       vcHash: 'abc123hash',
     };
 
-    it('deve chamar POST /proofs/submit com o payload completo', async () => {
-      mockPost.mockResolvedValueOnce(mockGenerateResponse);
+    it('deve chamar POST /public/proof/submit com o payload completo', async () => {
+      mockPost.mockResolvedValueOnce(mockSubmitResponse);
 
       const result = await service.submit(submitReq);
 
