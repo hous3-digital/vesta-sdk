@@ -68,7 +68,7 @@ const mockGenerateResponse: GenerateAndSubmitResponse = {
   verified: true,
   zkProof: { protocol: 'groth16', curve: 'bn128', publicSignals: ['2', '1'], proofHash: 'ph', mock: true },
   stellar: { txHash: 'MOCK_TX_001', ledger: 0, contractId: 'PLACEHOLDER', network: 'stellar:soroban:testnet', mock: true },
-  attestation: { id: 'att-001', vcHash: TEST_VC_HASH, verifierId: 'verifier_bradesco', kycLevel: 'complete', createdAt: '2025-01-15T10:00:00Z' },
+  attestation: { id: 'att-001', vcHash: TEST_VC_HASH, verifierId: 'verifier_bradesco', kycLevel: 'complete', userWalletAddress: null, createdAt: '2025-01-15T10:00:00Z' },
 };
 
 // ─── Mock global de fetch ──────────────────────────────────────────────────────
@@ -225,20 +225,35 @@ describe('VestaSDK', () => {
   describe('validateCredential()', () => {
     const mockChallengeResponse = { challenge: 'aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899', expiresAt: Date.now() + 60000 };
 
+    // A two-phase proof flow has prepare returning the unsigned XDR with the
+    // legacy fallback (requiresUserSignature=false), and submit-signed
+    // returning the final attestation. In the legacy path the SDK passes the
+    // XDR through unchanged — Privy signing is exercised only when the issuer
+    // has privyEnabled=true on the backend, which we cover separately.
+    const mockPrepareResponse = {
+      prepareSessionId: 'prep_test_001',
+      unsignedTxXdr: 'AAAAAgAAAAA...unsigned',
+      requiresUserSignature: false,
+      userWalletAddress: null,
+      zkProof: { protocol: 'groth16', curve: 'bn128', publicSignals: ['2', '1'], proofHash: 'ph', mock: true },
+    };
+
     /**
-     * Helper: 3 respostas sequenciais — issue, challenge (anti-replay), proof.
+     * Helper: 4 respostas sequenciais — issue, challenge (anti-replay),
+     * prepare, submit-signed.
      */
-    function mockFetchSequence(issue: unknown, proof: unknown): jest.Mock {
+    function mockFetchSequence(issue: unknown, prepare: unknown, submitSigned: unknown): jest.Mock {
       const mockFn = jest.fn()
         .mockResolvedValueOnce({ ok: true, status: 200, statusText: 'OK', json: () => Promise.resolve(issue) })
         .mockResolvedValueOnce({ ok: true, status: 200, statusText: 'OK', json: () => Promise.resolve(mockChallengeResponse) })
-        .mockResolvedValueOnce({ ok: true, status: 200, statusText: 'OK', json: () => Promise.resolve(proof) });
+        .mockResolvedValueOnce({ ok: true, status: 200, statusText: 'OK', json: () => Promise.resolve(prepare) })
+        .mockResolvedValueOnce({ ok: true, status: 200, statusText: 'OK', json: () => Promise.resolve(submitSigned) });
       global.fetch = mockFn;
       return mockFn;
     }
 
-    it('deve autenticar via Passkey e chamar POST /public/proof/generate-and-submit', async () => {
-      const fetchMock = mockFetchSequence(mockIssueApiResponse, mockGenerateResponse);
+    it('deve autenticar via Passkey e fazer o fluxo two-phase prepare + submit-signed', async () => {
+      const fetchMock = mockFetchSequence(mockIssueApiResponse, mockPrepareResponse, mockGenerateResponse);
 
       await sdk.issueCredential({
         cpf: '12345678900', fullName: 'João da Silva', birthDate: '1990-03-15',
@@ -253,14 +268,17 @@ describe('VestaSDK', () => {
 
       expect(result.verified).toBe(true);
       expect(result.stellar.txHash).toBe('MOCK_TX_001');
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
 
-      const [proofUrl] = fetchMock.mock.calls[2] as [string];
-      expect(proofUrl).toBe('https://vesta.trust-staging.com/public/proof/generate-and-submit');
+      // call[0] = issue, call[1] = challenge, call[2] = prepare, call[3] = submit-signed
+      const [prepareUrl] = fetchMock.mock.calls[2] as [string];
+      expect(prepareUrl).toBe('https://vesta.trust-staging.com/public/proof/prepare');
+      const [submitUrl] = fetchMock.mock.calls[3] as [string];
+      expect(submitUrl).toBe('https://vesta.trust-staging.com/public/proof/submit-signed');
     });
 
-    it('deve incluir a VC recuperada via Passkey no payload enviado à API', async () => {
-      const fetchMock = mockFetchSequence(mockIssueApiResponse, mockGenerateResponse);
+    it('deve incluir a VC recuperada via Passkey no payload do prepare', async () => {
+      const fetchMock = mockFetchSequence(mockIssueApiResponse, mockPrepareResponse, mockGenerateResponse);
 
       await sdk.issueCredential({
         cpf: '12345678900', fullName: 'João da Silva', birthDate: '1990-03-15',
@@ -273,15 +291,21 @@ describe('VestaSDK', () => {
         minKycLevel: 2,
       });
 
-      // call[0] = issue, call[1] = challenge, call[2] = proof
-      const [, options] = fetchMock.mock.calls[2] as [string, RequestInit];
-      const body = JSON.parse(options.body as string) as Record<string, unknown>;
-      expect(body['vc']).toEqual(mockVC);
-      expect(body['verifierId']).toBe('verifier_bradesco');
-      expect(body['minKycLevel']).toBe(2);
-      expect(body['challenge']).toBeDefined();
-      expect(body).not.toHaveProperty('vcHash');
-      expect(body).not.toHaveProperty('subjectDid');
+      // call[2] = prepare
+      const [, prepareOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
+      const prepareBody = JSON.parse(prepareOptions.body as string) as Record<string, unknown>;
+      expect(prepareBody['vc']).toEqual(mockVC);
+      expect(prepareBody['verifierId']).toBe('verifier_bradesco');
+      expect(prepareBody['minKycLevel']).toBe(2);
+      expect(prepareBody['challenge']).toBeDefined();
+      expect(prepareBody).not.toHaveProperty('vcHash');
+      expect(prepareBody).not.toHaveProperty('subjectDid');
+
+      // call[3] = submit-signed — deve passar prepareSessionId + signedTxXdr (== unsigned no fallback)
+      const [, submitOptions] = fetchMock.mock.calls[3] as [string, RequestInit];
+      const submitBody = JSON.parse(submitOptions.body as string) as Record<string, unknown>;
+      expect(submitBody['prepareSessionId']).toBe('prep_test_001');
+      expect(submitBody['signedTxXdr']).toBe('AAAAAgAAAAA...unsigned');
     });
   });
 

@@ -2,6 +2,7 @@ import { createHttpClient, resolveBaseUrl, VestaSDKError } from './http/client';
 import { CredentialsService } from './credentials/credentials.service';
 import { ProofsService } from './proofs/proofs.service';
 import { PasskeyService } from './passkey/passkey.service';
+import { WalletService } from './wallet/wallet.service';
 import type {
   GenerateAndSubmitResponse,
   IssueCredentialRequest,
@@ -58,6 +59,7 @@ export class VestaSDK {
   private readonly credentials: CredentialsService;
   private readonly proofs: ProofsService;
   private readonly passkey: PasskeyService;
+  private readonly wallet: WalletService;
   private _busy = false;
 
   /**
@@ -77,6 +79,7 @@ export class VestaSDK {
     this.credentials = new CredentialsService(http, config.issuerId);
     this.proofs = new ProofsService(http);
     this.passkey = new PasskeyService(config.rpId, baseUrl, config.apiKey);
+    this.wallet = new WalletService();
   }
 
   // ─── Mutex — proteção contra chamadas simultâneas ─────────────────────────
@@ -172,13 +175,37 @@ export class VestaSDK {
       );
     }
 
-    return this.proofs.generateAndSubmit(
-      stored.vc,
-      req.privateInputs,
-      req.verifierId,
-      req.minKycLevel,
-      stored.challengeUsed,
-    );
+    // Fase 1 — backend gera prova ZK e devolve a tx Soroban unsigned.
+    const prepared = await this.proofs.prepare({
+      vc: stored.vc,
+      privateInputs: req.privateInputs,
+      verifierId: req.verifierId,
+      minKycLevel: req.minKycLevel,
+      challenge: stored.challengeUsed,
+    });
+
+    // Fase 2 — assina via Privy se a tx exige assinatura do usuário, senão
+    // apenas repassa o XDR (modo legado interno, backend já assinou).
+    let signedTxXdr = prepared.unsignedTxXdr;
+    let privyIdentityToken: string | undefined;
+
+    if (prepared.requiresUserSignature) {
+      if (!this.wallet.isAvailable()) {
+        throw new Error(
+          'VestaSDK: backend exige assinatura do usuário mas o SDK foi construído sem Privy. ' +
+          'Rebuild com PRIVY_APP_ID configurado.',
+        );
+      }
+      const auth = await this.wallet.authenticateWithPasskey(stored.passkeyCredentialId);
+      signedTxXdr = await this.wallet.signStellarTx(prepared.unsignedTxXdr);
+      privyIdentityToken = auth.identityToken;
+    }
+
+    return this.proofs.submitSigned({
+      prepareSessionId: prepared.prepareSessionId,
+      signedTxXdr,
+      privyIdentityToken,
+    });
   }
 
   // ─── 3. Consulta de status ────────────────────────────────────────────────
