@@ -22,6 +22,15 @@ const path = require("path");
 const OUTPUT_PATH = path.join(__dirname, "..", "src", "wallet", "privy.config.generated.ts");
 const PLACEHOLDER = "__PRIVY_APP_ID_NOT_SET__";
 
+// Defensive guard: if we are being run outside the SDK source tree (for
+// example, accidentally invoked as a postinstall hook inside a consumer's
+// node_modules where only `dist/` is shipped), exit silently. The published
+// package never needs to (re)generate this file — the value is already baked
+// into the compiled JS.
+if (!fs.existsSync(path.join(__dirname, "..", "src", "wallet"))) {
+  process.exit(0);
+}
+
 function loadDotenv() {
   const envPath = path.join(__dirname, "..", ".env");
   if (!fs.existsSync(envPath)) return;
