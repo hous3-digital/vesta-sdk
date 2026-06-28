@@ -1,6 +1,6 @@
 {
   "name": "@hous3-digital/vesta-sdk",
-  "version": "2.0.1",
+  "version": "2.0.0-staging.3",
   "description": "SKD Vesta para integração com a API da Vesta",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
@@ -67,7 +67,8 @@
   },
   "dependencies": {
     "@privy-io/js-sdk-core": "^0.67.4",
-    "@stellar/stellar-sdk": "^15.1.0"
+    "@stellar/stellar-sdk": "^15.1.0",
+    "viem": "^2.52.0"
   },
   "resolutions": {
     "axios": ">=1.16.0",
