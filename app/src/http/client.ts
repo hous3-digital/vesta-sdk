@@ -91,10 +91,6 @@ export function createHttpClient(config: VestaSDKConfig): HttpClient {
         'X-Api-Key': config.apiKey,
       };
 
-      if (config.issuerId) {
-        headers['X-Vesta-Issuer-ID'] = config.issuerId;
-      }
-
       // Timeout via AbortController — evita que o SDK trave indefinidamente
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
