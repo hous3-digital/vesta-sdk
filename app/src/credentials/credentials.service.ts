@@ -20,12 +20,8 @@ import type {
 export class CredentialsService {
   /**
    * @param http - Cliente HTTP pré-configurado com API key e URL base.
-   * @param issuerId - ID do emissor enviado no corpo das requisições de emissão.
    */
-  constructor(
-    private readonly http: HttpClient,
-    private readonly issuerId?: string,
-  ) {}
+  constructor(private readonly http: HttpClient) {}
 
   /**
    * Emite uma nova Credencial Verificável (VC) para o titular informado.
@@ -48,10 +44,7 @@ export class CredentialsService {
    * console.log(result.vcHash); // "a1b2c3..."
    */
   async issue(req: IssueCredentialRequest): Promise<IssueCredentialResponse> {
-    return this.http.post<IssueCredentialRequest & { issuerId?: string }, IssueCredentialResponse>(
-      '/public/credential',
-      { ...req, issuerId: this.issuerId },
-    );
+    return this.http.post<IssueCredentialRequest, IssueCredentialResponse>('/public/credential', req);
   }
 
   /**

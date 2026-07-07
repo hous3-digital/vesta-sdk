@@ -62,7 +62,7 @@ describe('CredentialsService', () => {
 
   beforeEach(() => {
     mockPost = jest.fn();
-    service = new CredentialsService(makeHttpClient(mockPost), 'bradesco');
+    service = new CredentialsService(makeHttpClient(mockPost));
   });
 
   // ── issue ──────────────────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ describe('CredentialsService', () => {
       const result = await service.issue(issueReq);
 
       expect(mockPost).toHaveBeenCalledTimes(1);
-      expect(mockPost).toHaveBeenCalledWith('/public/credential', { ...issueReq, issuerId: 'bradesco' });
+      expect(mockPost).toHaveBeenCalledWith('/public/credential', issueReq);
       expect(result).toEqual(mockIssueResponse);
     });
 

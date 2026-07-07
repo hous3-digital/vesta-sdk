@@ -14,7 +14,6 @@ import type {
 
 const mockConfig: VestaSDKConfig = {
   apiKey: 'test-api-key',
-  issuerId: 'bradesco',
   rpId: 'localhost',
 };
 
@@ -176,7 +175,7 @@ describe('VestaSDK', () => {
       const [, options] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit];
       const headers = options.headers as Record<string, string>;
       expect(headers['X-Api-Key']).toBe('test-api-key');
-      expect(headers['X-Vesta-Issuer-ID']).toBe('bradesco');
+      expect(headers['X-Vesta-Issuer-ID']).toBeUndefined();
     });
 
     it('deve lançar erro descritivo se Passkey falhar após emissão bem-sucedida', async () => {

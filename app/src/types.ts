@@ -119,7 +119,6 @@ export interface Groth16Proof {
  * const sdk = new VestaSDK({
  *   apiUrl: 'https://vesta.trust-staging.com',
  *   apiKey: 'vesta_live_abc123',
- *   issuerId: 'bradesco',
  * });
  */
 export interface VestaSDKConfig {
@@ -128,8 +127,6 @@ export interface VestaSDKConfig {
    * Análogo à publishable key do Stripe — incluída no header X-Api-Key.
    */
   apiKey: string;
-  /** ID do emissor enviado no corpo das requisições de emissão de credencial. */
-  issuerId?: string;
   /**
    * Ambiente de execução. Determina a URL base da API.
    * Padrão: `VestaEnvironment.STAGING`.

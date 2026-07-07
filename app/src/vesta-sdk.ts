@@ -33,7 +33,6 @@ import type {
  *
  * const sdk = new VestaSDK({
  *   apiKey: 'vesta_live_abc123',
- *   issuerId: 'bradesco',
  *   environment: VestaEnvironment.PRODUCTION,
  * });
  *
@@ -65,7 +64,7 @@ export class VestaSDK {
   /**
    * Instancia o SDK com as configurações do integrador.
    *
-   * @param config - API key, environment, issuer ID e rpId opcionais.
+   * @param config - API key, environment e rpId opcionais.
    *
    * @example
    * const sdk = new VestaSDK({
@@ -76,7 +75,7 @@ export class VestaSDK {
   constructor(config: VestaSDKConfig) {
     const http = createHttpClient(config);
     const baseUrl = resolveBaseUrl(config);
-    this.credentials = new CredentialsService(http, config.issuerId);
+    this.credentials = new CredentialsService(http);
     this.proofs = new ProofsService(http);
     this.passkey = new PasskeyService(config.rpId, baseUrl, config.apiKey);
     this.wallet = new WalletService();
