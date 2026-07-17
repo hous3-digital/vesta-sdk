@@ -1,6 +1,6 @@
 {
   "name": "@hous3-digital/vesta-sdk",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "SKD Vesta para integração com a API da Vesta",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
@@ -63,7 +63,7 @@
   ],
   "publishConfig": {
     "registry": "https://npm.pkg.github.com/",
-    "access": "restricted"
+    "access": "public"
   },
   "dependencies": {
     "@privy-io/js-sdk-core": "^0.67.4",
