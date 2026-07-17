@@ -63,7 +63,7 @@
   ],
   "publishConfig": {
     "registry": "https://npm.pkg.github.com/",
-    "access": "restricted"
+    "access": "public"
   },
   "dependencies": {
     "@privy-io/js-sdk-core": "^0.67.4",
