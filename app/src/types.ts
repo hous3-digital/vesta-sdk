@@ -29,8 +29,10 @@ export enum VestaEnvironment {
  * - basic: verificação documental simples
  * - intermediate: validação adicional (ex: comprovante de renda)
  * - complete: biometria + documento + validação Serasa/SPC
+ * - pending: KYC assíncrono do issuer ainda não retornou veredito. O status
+ *   real da credencial fica em PENDING até chegar o webhook do KYC provider.
  */
-export type KycLevel = 'basic' | 'intermediate' | 'complete';
+export type KycLevel = 'basic' | 'intermediate' | 'complete' | 'pending';
 
 // ─── Estrutura da VC ──────────────────────────────────────────────────────────
 
@@ -239,6 +241,14 @@ export interface IssueCredentialResponse {
   alreadyExisted: boolean;
 }
 
+/** Motivos possíveis de uma credencial inválida retornados por `verify`. */
+export type VerifyCredentialInvalidReason =
+  | 'revoked'
+  | 'expired'
+  | 'pending'
+  | 'rejected'
+  | 'not_found';
+
 /** Resposta da consulta de status de uma credencial. */
 export interface VerifyCredentialResponse {
   /** Indica se a credencial está válida e ativa. */
@@ -253,8 +263,8 @@ export interface VerifyCredentialResponse {
   expiresAt?: string;
   /** Nonce para uso em desafio ZK (presente se válida). */
   challengeNonce?: string;
-  /** Motivo da invalidação: "revoked" | "expired" (presente se inválida). */
-  reason?: string;
+  /** Motivo da invalidação (presente se inválida). */
+  reason?: VerifyCredentialInvalidReason;
 }
 
 /** Resposta da revogação de credencial. */

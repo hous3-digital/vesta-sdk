@@ -20,6 +20,12 @@ import type {
   VerifyCredentialResponse,
 } from './types';
 
+/** Resultado interno do lookup local + verify no backend. */
+interface LocalRegisteredCredential {
+  vcHash: string;
+  result: VerifyCredentialResponse;
+}
+
 /**
  * Ponto de entrada principal do `@hous3-digital/vesta-sdk`.
  *
@@ -342,13 +348,24 @@ export class VestaSDK {
    * qual VC usar). Para a maioria dos usos, prefira `hasRegisteredCredential`.
    */
   async findRegisteredVcHash(): Promise<string | null> {
+    const found = await this.findLocalRegisteredCredential();
+    return found ? found.vcHash : null;
+  }
+
+  /**
+   * Itera pelos hashes locais e retorna o primeiro que existe no backend do
+   * ambiente atual, junto com o payload completo do verify. Isso permite ao
+   * smartEnroll fazer dispatch baseado em `pending`/`rejected`/`valid` sem
+   * fazer uma segunda chamada.
+   */
+  private async findLocalRegisteredCredential(): Promise<LocalRegisteredCredential | null> {
     const hashes = await this.passkey.getStoredHashes();
     if (hashes.length === 0) return null;
 
     for (const vcHash of hashes) {
       try {
-        await this.credentials.verify({ vcHash });
-        return vcHash;
+        const result = await this.credentials.verify({ vcHash });
+        return { vcHash, result };
       } catch (err) {
         if (err instanceof VestaSDKError && err.statusCode === 404) {
           // VC local não existe no backend atual — provavelmente foi emitida
@@ -385,9 +402,9 @@ export class VestaSDK {
     // VCs locais emitidas contra outro ambiente (ex.: testnet quando estamos
     // em mainnet) são tratadas como inexistentes — o fluxo de novo usuário é
     // disparado em vez de tentar validar uma VC que o backend não conhece.
-    const registeredVcHash = await this.findRegisteredVcHash();
+    const local = await this.findLocalRegisteredCredential();
 
-    if (!registeredVcHash) {
+    if (!local) {
       // ── Fluxo novo usuário: emite VC + registra Passkey ──────────────────
       const issued = await this._issueCredential(params.userData);
       return {
@@ -398,19 +415,56 @@ export class VestaSDK {
       };
     }
 
-    // ── Fluxo usuário recorrente: valida VC existente on-chain ────────────
-    const validation = await this._validateCredential({
-      privateInputs: params.privateInputs,
-      verifierId: params.verifierId,
-      minKycLevel: params.minKycLevel,
-    } as ValidateCredentialRequest);
+    const { vcHash, result } = local;
 
-    return {
-      authenticated: validation.verified,
-      isNewUser: false,
-      vcHash: validation.attestation.vcHash,
-      txHash: validation.stellar.txHash,
-      mock: validation.stellar.mock,
-    };
+    if (result.valid) {
+      // ── Fluxo usuário recorrente: valida VC existente on-chain ─────────
+      const validation = await this._validateCredential({
+        privateInputs: params.privateInputs,
+        verifierId: params.verifierId,
+        minKycLevel: params.minKycLevel,
+      } as ValidateCredentialRequest);
+
+      return {
+        authenticated: validation.verified,
+        isNewUser: false,
+        vcHash: validation.attestation.vcHash,
+        txHash: validation.stellar.txHash,
+        mock: validation.stellar.mock,
+      };
+    }
+
+    // ── VC existe no backend mas não está válida — dispatch por reason ───
+    switch (result.reason) {
+      case 'pending':
+        throw new VestaSDKError(
+          202,
+          'KYC em análise. Aguarde a conclusão do processo de verificação para autenticar.',
+        );
+
+      case 'rejected': {
+        // KYC reprovou: limpa a VC local órfã e refaz o cadastro do zero.
+        await this.passkey.deleteStored(vcHash);
+        const reissued = await this._issueCredential(params.userData);
+        return {
+          authenticated: true,
+          isNewUser: true,
+          vcHash: reissued.vcHash,
+          mock: false,
+        };
+      }
+
+      case 'revoked':
+        throw new VestaSDKError(410, 'Credencial revogada.');
+
+      case 'expired':
+        throw new VestaSDKError(410, 'Credencial expirada.');
+
+      default:
+        throw new VestaSDKError(
+          422,
+          `Credencial inválida: ${result.reason ?? 'motivo desconhecido'}.`,
+        );
+    }
   }
 }
