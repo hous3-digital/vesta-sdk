@@ -73,21 +73,58 @@ const mockGenerateResponse: GenerateAndSubmitResponse = {
 // ─── Mock global de fetch ──────────────────────────────────────────────────────
 
 function mockFetchOnce(body: unknown, status = 200): void {
-  global.fetch = jest.fn().mockResolvedValueOnce({
-    ok: status >= 200 && status < 300,
-    status,
-    statusText: status === 200 ? 'OK' : 'Error',
-    json: () => Promise.resolve(body),
-  } as Response);
+  global.fetch = createFetchMock([{ body, status }]);
 }
 
 function mockFetchError(statusCode: number, message: string): void {
-  global.fetch = jest.fn().mockResolvedValueOnce({
-    ok: false,
-    status: statusCode,
-    statusText: 'Error',
-    json: () => Promise.resolve({ statusCode, message }),
-  } as Response);
+  global.fetch = createFetchMock([{ body: { statusCode, message }, status: statusCode }]);
+}
+
+function createFetchMock(
+  apiResponses: Array<{ body: unknown; status?: number }>,
+): jest.Mock {
+  return jest.fn(async (url: string, init: RequestInit) => {
+    const requestBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    if (url.endsWith('/passkey/registration/options')) {
+      return okResponse({
+        challenge: Buffer.from('registration-challenge').toString('base64url'),
+        rp: { id: 'localhost', name: 'Vesta' },
+        user: { id: Buffer.from('opaque-user').toString('base64url'), name: 'holder', displayName: 'Holder' },
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+        authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+        excludeCredentials: [],
+      });
+    }
+    if (url.endsWith('/passkey/registration/verify')) {
+      const webauthn = requestBody.response as { id: string };
+      return okResponse({ verified: true, passkeyCredentialId: webauthn.id, vcHash: TEST_VC_HASH });
+    }
+    if (url.endsWith('/passkey/authentication/options')) {
+      return okResponse({
+        challenge: Buffer.from('authentication-challenge').toString('base64url'),
+        rpId: 'localhost', userVerification: 'required', timeout: 60_000,
+      });
+    }
+    if (url.endsWith('/passkey/authentication/verify')) {
+      return okResponse({
+        verified: true, vcHash: TEST_VC_HASH, proofChallenge: 'proof-challenge',
+        privyCustomAuthToken: null,
+      });
+    }
+    const next = apiResponses.shift();
+    if (!next) throw new Error(`Resposta de teste ausente para ${url}`);
+    const status = next.status ?? 200;
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      statusText: status < 300 ? 'OK' : 'Error',
+      json: async () => next.body,
+    } as Response;
+  });
+}
+
+function okResponse(data: unknown): Response {
+  return { ok: true, status: 200, statusText: 'OK', json: async () => ({ data }) } as Response;
 }
 
 // ─── Mock do WebAuthn ─────────────────────────────────────────────────────────
@@ -97,12 +134,17 @@ function setupWebAuthnMocks(vcHash: string): { mockCreate: jest.Mock; mockGet: j
     id: 'mock-cred-id',
     rawId: new TextEncoder().encode('mock-cred-id'),
     type: 'public-key',
-    response: {},
+    response: {
+      clientDataJSON: new TextEncoder().encode('client-data'),
+      attestationObject: new TextEncoder().encode('attestation'),
+      getTransports: () => ['internal'],
+    },
     getClientExtensionResults: () => ({}),
   });
 
   const mockGet = jest.fn().mockResolvedValue({
     id: 'mock-cred-id',
+    rawId: new TextEncoder().encode('mock-cred-id'),
     type: 'public-key',
     response: {
       userHandle: new TextEncoder().encode(vcHash),
@@ -152,7 +194,7 @@ describe('VestaSDK', () => {
         kycMethod: 'biometric_plus_document',
       });
 
-      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(global.fetch).toHaveBeenCalledTimes(3);
       const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string];
       expect(url).toBe('https://vesta.trust-staging.com/public/credential');
 
@@ -222,8 +264,6 @@ describe('VestaSDK', () => {
   // ── validateCredential ────────────────────────────────────────────────────
 
   describe('validateCredential()', () => {
-    const mockChallengeResponse = { challenge: 'aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899', expiresAt: Date.now() + 60000 };
-
     // A two-phase proof flow has prepare returning the unsigned XDR with the
     // legacy fallback (requiresUserSignature=false), and submit-signed
     // returning the final attestation. In the legacy path the SDK passes the
@@ -234,19 +274,20 @@ describe('VestaSDK', () => {
       unsignedTxXdr: 'AAAAAgAAAAA...unsigned',
       requiresUserSignature: false,
       userWalletAddress: null,
+      stellarNetworkPassphrase: 'Test SDF Network ; September 2015',
       zkProof: { protocol: 'groth16', curve: 'bn128', publicSignals: ['2', '1'], proofHash: 'ph', mock: true },
     };
 
     /**
-     * Helper: 4 respostas sequenciais — issue, challenge (anti-replay),
-     * prepare, submit-signed.
+     * As ceremonies Passkey são respondidas por rota; a fila contém apenas
+     * issue, prepare e submit-signed.
      */
     function mockFetchSequence(issue: unknown, prepare: unknown, submitSigned: unknown): jest.Mock {
-      const mockFn = jest.fn()
-        .mockResolvedValueOnce({ ok: true, status: 200, statusText: 'OK', json: () => Promise.resolve(issue) })
-        .mockResolvedValueOnce({ ok: true, status: 200, statusText: 'OK', json: () => Promise.resolve(mockChallengeResponse) })
-        .mockResolvedValueOnce({ ok: true, status: 200, statusText: 'OK', json: () => Promise.resolve(prepare) })
-        .mockResolvedValueOnce({ ok: true, status: 200, statusText: 'OK', json: () => Promise.resolve(submitSigned) });
+      const mockFn = createFetchMock([
+        { body: issue },
+        { body: prepare },
+        { body: submitSigned },
+      ]);
       global.fetch = mockFn;
       return mockFn;
     }
@@ -267,12 +308,12 @@ describe('VestaSDK', () => {
 
       expect(result.verified).toBe(true);
       expect(result.stellar.txHash).toBe('MOCK_TX_001');
-      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(fetchMock).toHaveBeenCalledTimes(7);
 
-      // call[0] = issue, call[1] = challenge, call[2] = prepare, call[3] = submit-signed
-      const [prepareUrl] = fetchMock.mock.calls[2] as [string];
+      // issue + registration options/verify + authentication options/verify + proof two-phase
+      const [prepareUrl] = fetchMock.mock.calls[5] as [string];
       expect(prepareUrl).toBe('https://vesta.trust-staging.com/public/proof/prepare');
-      const [submitUrl] = fetchMock.mock.calls[3] as [string];
+      const [submitUrl] = fetchMock.mock.calls[6] as [string];
       expect(submitUrl).toBe('https://vesta.trust-staging.com/public/proof/submit-signed');
     });
 
@@ -290,8 +331,7 @@ describe('VestaSDK', () => {
         minKycLevel: 2,
       });
 
-      // call[2] = prepare
-      const [, prepareOptions] = fetchMock.mock.calls[2] as [string, RequestInit];
+      const [, prepareOptions] = fetchMock.mock.calls[5] as [string, RequestInit];
       const prepareBody = JSON.parse(prepareOptions.body as string) as Record<string, unknown>;
       expect(prepareBody['vc']).toEqual(mockVC);
       expect(prepareBody['verifierId']).toBe('verifier_bradesco');
@@ -300,11 +340,65 @@ describe('VestaSDK', () => {
       expect(prepareBody).not.toHaveProperty('vcHash');
       expect(prepareBody).not.toHaveProperty('subjectDid');
 
-      // call[3] = submit-signed — deve passar prepareSessionId + signedTxXdr (== unsigned no fallback)
-      const [, submitOptions] = fetchMock.mock.calls[3] as [string, RequestInit];
+      const [, submitOptions] = fetchMock.mock.calls[6] as [string, RequestInit];
       const submitBody = JSON.parse(submitOptions.body as string) as Record<string, unknown>;
       expect(submitBody['prepareSessionId']).toBe('prep_test_001');
       expect(submitBody['signedTxXdr']).toBe('AAAAAgAAAAA...unsigned');
+    });
+
+    it('troca o custom-auth JWT antes do prepare e envia o access token após assinar', async () => {
+      const authenticateWithCustomAuthToken = jest.fn().mockResolvedValue({
+        userId: 'privy-user', walletAddress: 'GSTELLAR', accessToken: 'privy-access-token',
+      });
+      const prepare = jest.fn().mockResolvedValue({
+        ...mockPrepareResponse,
+        requiresUserSignature: true,
+        userWalletAddress: 'GSTELLAR',
+      });
+      const signStellarTx = jest.fn().mockResolvedValue('signed-xdr');
+      const submitSigned = jest.fn().mockResolvedValue(mockGenerateResponse);
+      const internals = sdk as unknown as {
+        passkey: { authenticate: jest.Mock };
+        wallet: {
+          authenticateWithCustomAuthToken: jest.Mock;
+          isAvailable: jest.Mock;
+          signStellarTx: jest.Mock;
+        };
+        proofs: { prepare: jest.Mock; submitSigned: jest.Mock };
+      };
+      internals.passkey = { authenticate: jest.fn().mockResolvedValue({
+        vc: mockVC,
+        vcHash: TEST_VC_HASH,
+        storedAt: new Date().toISOString(),
+        passkeyCredentialId: 'passkey-id',
+        challengeUsed: 'proof-challenge',
+        privyCustomAuthToken: 'header.payload.signature',
+      }) };
+      internals.wallet = {
+        authenticateWithCustomAuthToken,
+        isAvailable: jest.fn().mockReturnValue(true),
+        signStellarTx,
+      };
+      internals.proofs = { prepare, submitSigned };
+
+      await sdk.validateCredential({
+        privateInputs: { cpf: '12345678900', birthDate: '19900315', fullName: 'JOAO SILVA' },
+        verifierId: 'verifier',
+        minKycLevel: 2,
+      });
+
+      expect(authenticateWithCustomAuthToken).toHaveBeenCalledWith('header.payload.signature');
+      expect(authenticateWithCustomAuthToken.mock.invocationCallOrder[0]).toBeLessThan(
+        prepare.mock.invocationCallOrder[0],
+      );
+      expect(signStellarTx).toHaveBeenCalledWith(
+        mockPrepareResponse.unsignedTxXdr,
+        mockPrepareResponse.stellarNetworkPassphrase,
+      );
+      expect(submitSigned).toHaveBeenCalledWith(expect.objectContaining({
+        signedTxXdr: 'signed-xdr',
+        privyIdentityToken: 'privy-access-token',
+      }));
     });
   });
 
