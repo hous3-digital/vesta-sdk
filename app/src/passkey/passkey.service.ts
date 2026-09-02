@@ -14,10 +14,9 @@ const DB_VERSION = 1;
  *
  * ## Como funciona
  * - A VC é armazenada em **IndexedDB** (banco local do browser).
- * - Um **WebAuthn credential (Passkey)** é criado com `user.id = vcHash`.
+ * - O backend gera as opções e verifica attestation/assertion WebAuthn.
  * - Para recuperar a VC, o usuário precisa autenticar via Passkey (biometria, PIN, etc.).
- * - A assertion de autenticação retorna o `userHandle` (= vcHash), que é usado
- *   para buscar a VC no IndexedDB.
+ * - Apenas uma assertion válida devolve o `vcHash` e um challenge separado para a prova.
  *
  * ## Por que IndexedDB + WebAuthn separados?
  * O protocolo WebAuthn não permite armazenar dados arbitrários no autenticador.
@@ -75,9 +74,9 @@ export class PasskeyService {
    * Registra um Passkey para a credencial fornecida e salva a VC no IndexedDB.
    *
    * O processo:
-   * 1. Solicita ao autenticador do dispositivo a criação de um novo credential.
-   * 2. O `user.id` do credential é definido como `vcHash` (encodado em bytes).
-   * 3. A VC é persistida no IndexedDB com o `passkeyCredentialId` associado.
+   * 1. Obtém opções de registro geradas pelo backend.
+   * 2. Solicita ao autenticador a criação de um credential residente.
+   * 3. Envia o attestation ao backend e persiste a VC somente após validação.
    *
    * O browser exibirá o prompt nativo de criação de Passkey (Touch ID, Face ID,
    * Windows Hello, PIN, etc.).
@@ -96,39 +95,60 @@ export class PasskeyService {
   async register(vc: VestaVC, vcHash: string): Promise<PasskeyRegistrationResult> {
     this.assertSupported();
 
-    const challenge = crypto.getRandomValues(new Uint8Array(16));
-    // user.id deve ser um BufferSource — codificamos o vcHash como UTF-8 (64 bytes para SHA-256 hex)
-    const userId = new TextEncoder().encode(vcHash);
+    const options = await this.requestJson<PublicKeyCredentialCreationOptionsJSON>(
+      '/public/auth/passkey/registration/options',
+      { vcHash, rpId: this.rpId },
+    );
 
-    const credential = await navigator.credentials.create({
-      publicKey: {
-        challenge,
-        rp: {
-          id: this.rpId,
-          name: 'Vesta Digital Passport',
-        },
-        user: {
-          id: userId,
-          name: `${vcHash.slice(0, 16)}...`,
-          displayName: 'Vesta KYC Credential',
-        },
-        pubKeyCredParams: [
-          { alg: -7, type: 'public-key' },   // ES256 (ECDSA P-256)
-          { alg: -257, type: 'public-key' },  // RS256 (RSA) — fallback
-        ],
-        authenticatorSelection: {
-          residentKey: 'preferred',
-          userVerification: 'required',
-        },
-        timeout: 60000,
+    const browserOptions = {
+      ...options,
+      challenge: this.fromBase64Url(options.challenge),
+      user: {
+        ...options.user,
+        id: this.fromBase64Url(options.user.id),
       },
-    });
+      excludeCredentials: options.excludeCredentials?.map((item) => ({
+        ...item,
+        id: this.fromBase64Url(item.id),
+        type: 'public-key' as const,
+        transports: item.transports as AuthenticatorTransport[] | undefined,
+      })),
+    } as unknown as PublicKeyCredentialCreationOptions;
+    const credential = await navigator.credentials.create({ publicKey: browserOptions });
 
     if (!credential) {
       throw new Error('Criação do Passkey cancelada pelo usuário.');
     }
 
-    const passkeyCredentialId = credential.id;
+    const publicKeyCredential = credential as PublicKeyCredential;
+    const attestation = publicKeyCredential.response as AuthenticatorAttestationResponse;
+    const verification = await this.requestJson<{
+      verified: true;
+      passkeyCredentialId: string;
+      vcHash: string;
+    }>('/public/auth/passkey/registration/verify', {
+      challenge: options.challenge,
+      response: {
+        id: publicKeyCredential.id,
+        rawId: this.toBase64Url(publicKeyCredential.rawId),
+        type: publicKeyCredential.type,
+        authenticatorAttachment: publicKeyCredential.authenticatorAttachment,
+        clientExtensionResults: publicKeyCredential.getClientExtensionResults(),
+        response: {
+          clientDataJSON: this.toBase64Url(attestation.clientDataJSON),
+          attestationObject: this.toBase64Url(attestation.attestationObject),
+          transports: attestation.getTransports?.(),
+          authenticatorData: attestation.getAuthenticatorData
+            ? this.toBase64Url(attestation.getAuthenticatorData())
+            : undefined,
+          publicKey: attestation.getPublicKey?.()
+            ? this.toBase64Url(attestation.getPublicKey()!)
+            : undefined,
+          publicKeyAlgorithm: attestation.getPublicKeyAlgorithm?.(),
+        },
+      },
+    });
+    const passkeyCredentialId = verification.passkeyCredentialId;
 
     const stored: StoredCredential = {
       vc,
@@ -148,9 +168,9 @@ export class PasskeyService {
    * Autentica o usuário via Passkey e retorna a VC armazenada.
    *
    * O processo:
-   * 1. Solicita ao autenticador a assinatura de um challenge aleatório.
-   * 2. A assertion retorna o `userHandle`, que é o `vcHash` definido no registro.
-   * 3. O vcHash é decodificado e usado para buscar a VC no IndexedDB.
+   * 1. Obtém opções de autenticação e challenge do backend.
+   * 2. Envia a assertion completa para verificação server-side.
+   * 3. Usa o vcHash verificado pelo servidor para buscar a VC no IndexedDB.
    *
    * O browser exibirá o prompt nativo de autenticação (biometria, PIN, etc.).
    * Com `allowCredentials: []`, o autenticador apresenta todos os Passkeys
@@ -158,7 +178,6 @@ export class PasskeyService {
    *
    * @returns StoredCredential completo (VC + vcHash + metadados).
    * @throws {Error} Se o usuário cancelar o prompt de autenticação.
-   * @throws {Error} Se o `userHandle` não for encontrado na assertion.
    * @throws {Error} Se não houver VC armazenada para o vcHash recuperado.
    *
    * @example
@@ -166,61 +185,88 @@ export class PasskeyService {
    * console.log('VC recuperada:', stored.vc.id);
    * console.log('vcHash:', stored.vcHash);
    */
-  async authenticate(): Promise<StoredCredential> {
+  async authenticate(): Promise<StoredCredential & { privyCustomAuthToken?: string }> {
     this.assertSupported();
 
-    // Busca challenge do servidor (anti-replay: de uso único, expira em 60s).
-    const serverChallenge = await this.fetchServerChallenge();
-    const challengeHex: string = serverChallenge;
-    const bytes = new Uint8Array(
-      serverChallenge.match(/.{2}/g)!.map((b) => parseInt(b, 16)),
+    const options = await this.requestJson<PublicKeyCredentialRequestOptionsJSON>(
+      '/public/auth/passkey/authentication/options',
+      { rpId: this.rpId },
     );
-    const challengeBuffer = bytes.buffer as ArrayBuffer;
 
-    const assertion = await navigator.credentials.get({
-      publicKey: {
-        challenge: challengeBuffer,
-        rpId: this.rpId,
-        // allowCredentials vazio = resident key flow:
-        // o autenticador apresenta todos os passkeys registrados para este RP
-        allowCredentials: [],
-        userVerification: 'required',
-        timeout: 60000,
-      },
-    });
+    const browserOptions = {
+      ...options,
+      challenge: this.fromBase64Url(options.challenge),
+      allowCredentials: options.allowCredentials?.map((item) => ({
+        ...item,
+        id: this.fromBase64Url(item.id),
+        type: 'public-key' as const,
+        transports: item.transports as AuthenticatorTransport[] | undefined,
+      })),
+    } as unknown as PublicKeyCredentialRequestOptions;
+    const assertion = await navigator.credentials.get({ publicKey: browserOptions });
 
     if (!assertion) {
       throw new Error('Autenticação via Passkey cancelada pelo usuário.');
     }
 
-    // A assertion é um PublicKeyCredential com response do tipo AuthenticatorAssertionResponse
-    const assertionResponse = (assertion as PublicKeyCredential)
-      .response as AuthenticatorAssertionResponse;
-
-    if (!assertionResponse.userHandle) {
-      throw new Error(
-        'Passkey não retornou userHandle. Certifique-se de que o credential ' +
-        'foi criado com residentKey e userVerification habilitados.',
-      );
-    }
-
-    // userHandle = vcHash encodado em UTF-8 durante o registro
-    const vcHash = new TextDecoder().decode(assertionResponse.userHandle);
+    const publicKeyCredential = assertion as PublicKeyCredential;
+    const assertionResponse = publicKeyCredential.response as AuthenticatorAssertionResponse;
+    const verification = await this.requestJson<{
+      verified: true;
+      vcHash: string;
+      proofChallenge: string;
+      recoveryToken: string;
+      privyCustomAuthToken: string | null;
+    }>('/public/auth/passkey/authentication/verify', {
+      challenge: options.challenge,
+      response: {
+        id: publicKeyCredential.id,
+        rawId: this.toBase64Url(publicKeyCredential.rawId),
+        type: publicKeyCredential.type,
+        authenticatorAttachment: publicKeyCredential.authenticatorAttachment,
+        clientExtensionResults: publicKeyCredential.getClientExtensionResults(),
+        response: {
+          clientDataJSON: this.toBase64Url(assertionResponse.clientDataJSON),
+          authenticatorData: this.toBase64Url(assertionResponse.authenticatorData),
+          signature: this.toBase64Url(assertionResponse.signature),
+          userHandle: assertionResponse.userHandle
+            ? this.toBase64Url(assertionResponse.userHandle)
+            : undefined,
+        },
+      },
+    });
+    const vcHash = verification.vcHash;
 
     const db = await this.openDB();
-    const stored = await this.dbGet<StoredCredential>(db, vcHash);
+    let stored = await this.dbGet<StoredCredential>(db, vcHash);
     db.close();
 
     if (!stored) {
-      throw new Error(
-        `Nenhuma credencial encontrada para vcHash "${vcHash.slice(0, 16)}...". ` +
-        'A credencial pode ter sido removida do dispositivo.',
+      const recovered = await this.requestJson<{ vc: VestaVC; vcHash: string }>(
+        '/public/credential/recover',
+        { recoveryToken: verification.recoveryToken },
       );
+      if (recovered.vcHash !== vcHash) {
+        throw new Error('VestaSDK: a credencial recuperada não corresponde ao Passkey autenticado.');
+      }
+      stored = {
+        vc: recovered.vc,
+        vcHash: recovered.vcHash,
+        storedAt: new Date().toISOString(),
+        passkeyCredentialId: publicKeyCredential.id,
+      };
+      const recoveryDb = await this.openDB();
+      await this.dbPut(recoveryDb, stored);
+      recoveryDb.close();
     }
 
     // Inclui o challenge usado para que o chamador possa enviá-lo à API
     // para verificação anti-replay em /proofs/generate-and-submit.
-    return { ...stored, challengeUsed: challengeHex };
+    return {
+      ...stored,
+      challengeUsed: verification.proofChallenge,
+      privyCustomAuthToken: verification.privyCustomAuthToken ?? undefined,
+    };
   }
 
   /**
@@ -357,19 +403,8 @@ export class PasskeyService {
     });
   }
 
-  // ─── Challenge server-side ────────────────────────────────────────────────
-
-  /**
-   * Busca um challenge de uso único do servidor Vesta.
-   *
-   * O challenge é gerado com 32 bytes de entropia, armazenado com TTL de 60s
-   * e destruído após a primeira verificação — prevenindo replay attacks.
-   *
-   * @returns Challenge como string hexadecimal (64 chars).
-   * @throws {Error} Se a requisição ao servidor falhar.
-   */
-  private async fetchServerChallenge(): Promise<string> {
-    const url = `${this.baseUrl}/public/auth/challenge`;
+  private async requestJson<T>(path: string, body: Record<string, unknown>): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CHALLENGE_TIMEOUT_MS);
@@ -377,8 +412,9 @@ export class PasskeyService {
     let response: Response;
     try {
       response = await fetch(url, {
-        method: 'GET',
-        headers: { 'X-Api-Key': this.apiKey },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Api-Key': this.apiKey },
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
     } catch (err) {
@@ -386,12 +422,12 @@ export class PasskeyService {
       if (err instanceof DOMException && err.name === 'AbortError') {
         throw new VestaSDKError(
           0,
-          `Timeout ao buscar challenge do servidor (${CHALLENGE_TIMEOUT_MS / 1000}s).`,
+          `Timeout na ceremony Passkey (${CHALLENGE_TIMEOUT_MS / 1000}s).`,
         );
       }
       throw new VestaSDKError(
         0,
-        'Erro de rede ao buscar challenge — verifique sua conexão com a internet.',
+        'Erro de rede durante a ceremony Passkey — verifique sua conexão com a internet.',
       );
     }
     clearTimeout(timeoutId);
@@ -399,20 +435,29 @@ export class PasskeyService {
     if (!response.ok) {
       throw new VestaSDKError(
         response.status,
-        `Falha ao buscar challenge do servidor (${response.status}).`,
+        `Falha na ceremony Passkey (${response.status}).`,
       );
     }
 
-    const json = (await response.json()) as
-      | { data: { challenge: string; expiresAt: number } }
-      | { challenge: string; expiresAt: number };
-    const data = 'data' in json ? json.data : json;
+    const json = (await response.json()) as { data: T } | T;
+    return typeof json === 'object' && json !== null && 'data' in json
+      ? (json as { data: T }).data
+      : (json as T);
+  }
 
-    if (!data.challenge || typeof data.challenge !== 'string') {
-      throw new VestaSDKError(0, 'Resposta inválida do endpoint de challenge.');
-    }
+  private fromBase64Url(value: string): ArrayBuffer {
+    const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return bytes.buffer as ArrayBuffer;
+  }
 
-    return data.challenge;
+  private toBase64Url(value: ArrayBuffer): string {
+    const bytes = new Uint8Array(value);
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
   // ─── Guard ───────────────────────────────────────────────────────────────

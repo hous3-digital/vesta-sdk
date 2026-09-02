@@ -42,6 +42,7 @@ const mockPrepareResponse: PrepareProofResponse = {
   unsignedTxXdr: 'AAAAAgAAAAA...',
   requiresUserSignature: false,
   userWalletAddress: null,
+  stellarNetworkPassphrase: 'Test SDF Network ; September 2015',
   zkProof: {
     protocol: 'groth16',
     curve: 'bn128',

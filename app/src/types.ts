@@ -351,6 +351,8 @@ export interface PrepareProofResponse {
   unsignedTxXdr: string;
   requiresUserSignature: boolean;
   userWalletAddress: string | null;
+  /** Passphrase da rede usada para calcular o hash correto do envelope Stellar. */
+  stellarNetworkPassphrase: string;
   zkProof: ZkProofDetails;
 }
 
@@ -361,6 +363,7 @@ export interface PrepareProofResponse {
 export interface SubmitSignedProofRequest {
   prepareSessionId: string;
   signedTxXdr: string;
+  /** Privy access token; nome preservado no wire contract por compatibilidade. */
   privyIdentityToken?: string;
 }
 
@@ -419,6 +422,11 @@ export interface PasskeyRegistrationResult {
  * ou validará a VC existente no dispositivo (usuário recorrente).
  */
 export interface SmartEnrollParams {
+  /**
+   * `authenticate` força o prompt de Passkey, inclusive em um dispositivo sem
+   * IndexedDB local. `auto` preserva a descoberta local para compatibilidade.
+   */
+  mode?: 'auto' | 'authenticate';
   /**
    * Dados de identidade do usuário — usados apenas se nenhuma VC
    * existir no dispositivo (fluxo de novo cadastro + KYC).

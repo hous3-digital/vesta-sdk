@@ -176,9 +176,15 @@ export class VestaSDK {
     if (!stored.challengeUsed) {
       throw new Error(
         'VestaSDK: Challenge não foi obtido durante a autenticação Passkey. ' +
-        'Isso indica uma falha no endpoint GET /public/auth/challenge.',
+        'Isso indica uma falha na verificação server-side do Passkey.',
       );
     }
+
+    // O JWT custom-auth é curto e de uso imediato. Quando presente, troca-o
+    // por uma sessão Privy antes da geração ZK, que pode ser demorada.
+    const privyAuth = stored.privyCustomAuthToken
+      ? await this.wallet.authenticateWithCustomAuthToken(stored.privyCustomAuthToken)
+      : null;
 
     // Fase 1 — backend gera prova ZK e devolve a tx Soroban unsigned.
     const prepared = await this.proofs.prepare({
@@ -201,9 +207,16 @@ export class VestaSDK {
           'Rebuild com PRIVY_APP_ID configurado.',
         );
       }
-      const auth = await this.wallet.authenticateWithPasskey(stored.passkeyCredentialId);
-      signedTxXdr = await this.wallet.signStellarTx(prepared.unsignedTxXdr);
-      privyIdentityToken = auth.identityToken;
+      if (!privyAuth) {
+        throw new Error('VestaSDK: backend não retornou o token custom-auth após verificar o Passkey.');
+      }
+      signedTxXdr = await this.wallet.signStellarTx(
+        prepared.unsignedTxXdr,
+        prepared.stellarNetworkPassphrase,
+      );
+      // O nome do campo HTTP é preservado por compatibilidade. O valor é um
+      // access token Privy, que é o tipo aceito por verifyAuthToken no backend.
+      privyIdentityToken = privyAuth.accessToken;
     }
 
     return this.proofs.submitSigned({
@@ -398,6 +411,21 @@ export class VestaSDK {
   }
 
   private async _smartEnroll(params: SmartEnrollParams): Promise<SmartEnrollResult> {
+    if (params.mode === 'authenticate') {
+      const validation = await this._validateCredential({
+        privateInputs: params.privateInputs,
+        verifierId: params.verifierId,
+        minKycLevel: params.minKycLevel,
+      });
+      return {
+        authenticated: validation.verified,
+        isNewUser: false,
+        vcHash: validation.attestation.vcHash,
+        txHash: validation.stellar.txHash,
+        mock: validation.stellar.mock,
+      };
+    }
+
     // Confere se há VC local que ESTÁ registrada no backend do ambiente atual.
     // VCs locais emitidas contra outro ambiente (ex.: testnet quando estamos
     // em mainnet) são tratadas como inexistentes — o fluxo de novo usuário é
