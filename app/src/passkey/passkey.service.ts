@@ -215,6 +215,7 @@ export class PasskeyService {
       verified: true;
       vcHash: string;
       proofChallenge: string;
+      recoveryToken: string;
       privyCustomAuthToken: string | null;
     }>('/public/auth/passkey/authentication/verify', {
       challenge: options.challenge,
@@ -237,14 +238,26 @@ export class PasskeyService {
     const vcHash = verification.vcHash;
 
     const db = await this.openDB();
-    const stored = await this.dbGet<StoredCredential>(db, vcHash);
+    let stored = await this.dbGet<StoredCredential>(db, vcHash);
     db.close();
 
     if (!stored) {
-      throw new Error(
-        `Nenhuma credencial encontrada para vcHash "${vcHash.slice(0, 16)}...". ` +
-        'A credencial pode ter sido removida do dispositivo.',
+      const recovered = await this.requestJson<{ vc: VestaVC; vcHash: string }>(
+        '/public/credential/recover',
+        { recoveryToken: verification.recoveryToken },
       );
+      if (recovered.vcHash !== vcHash) {
+        throw new Error('VestaSDK: a credencial recuperada não corresponde ao Passkey autenticado.');
+      }
+      stored = {
+        vc: recovered.vc,
+        vcHash: recovered.vcHash,
+        storedAt: new Date().toISOString(),
+        passkeyCredentialId: publicKeyCredential.id,
+      };
+      const recoveryDb = await this.openDB();
+      await this.dbPut(recoveryDb, stored);
+      recoveryDb.close();
     }
 
     // Inclui o challenge usado para que o chamador possa enviá-lo à API

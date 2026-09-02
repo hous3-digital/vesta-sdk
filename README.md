@@ -7,7 +7,7 @@ SDK JavaScript/TypeScript para integração com a **Vesta** — plataforma de Cr
 A Vesta emite, armazena e valida **Credenciais Verificáveis (VCs)** de KYC para bancos e fintechs. O fluxo central:
 
 1. O integrador emite uma VC via API — os dados de PII são convertidos em Poseidon hashes e nunca armazenados em claro.
-2. A VC é armazenada no dispositivo do usuário, protegida por **Passkey (WebAuthn)**.
+2. A VC é armazenada no backend e mantida como cache no dispositivo; o acesso e a recuperação em outro dispositivo são protegidos por **Passkey (WebAuthn)**.
 3. Na autenticação, o SDK autentica o usuário via Passkey, gera uma prova **ZK Groth16** e a submete ao contrato **Soroban** na Stellar para verificação on-chain.
 
 ---
@@ -77,15 +77,17 @@ console.log(result.stellar.txHash); // hash da TX na Stellar
 
 ## Smart Enroll — fluxo unificado
 
-O método `smartEnroll` decide automaticamente o caminho com base na presença de uma VC no dispositivo:
+Por padrão, `smartEnroll` decide automaticamente o caminho com base na presença de uma VC no dispositivo. Para login explícito, `mode: 'authenticate'` aciona diretamente o Passkey descobrível e recupera a VC do backend caso o IndexedDB esteja vazio:
 
 | Situação | Fluxo executado |
 |---|---|
 | Sem VC no dispositivo | Emite VC + registra Passkey (novo usuário) |
 | VC existente | Autentica via Passkey + valida on-chain (usuário recorrente) |
+| `mode: 'authenticate'` e Passkey sincronizado | Autentica, restaura a VC local e valida on-chain |
 
 ```typescript
 const result = await sdk.smartEnroll({
+  mode: 'authenticate', // use no botão "Entrar"; omita para descoberta automática local
   userData: {
     cpf: '12345678900',
     fullName: 'João da Silva',

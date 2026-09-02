@@ -97,10 +97,14 @@ describe('PasskeyService server-verified ceremonies', () => {
           timeout: 60_000,
         });
       }
+      if (url.endsWith('/public/credential/recover')) {
+        return response({ vc: mockVC, vcHash: registeredHash });
+      }
       return response({
         verified: true,
         vcHash: registeredHash,
         proofChallenge: 'proof-challenge',
+        recoveryToken: 'recovery-token',
         privyCustomAuthToken: 'header.payload.signature',
       });
     });
@@ -145,9 +149,14 @@ describe('PasskeyService server-verified ceremonies', () => {
     expect(stored.privyCustomAuthToken).toBe('header.payload.signature');
   });
 
-  it('falha quando a assertion aponta para VC ausente no dispositivo', async () => {
+  it('recupera e restaura a VC quando o Passkey sincronizado não tem IndexedDB local', async () => {
     registeredHash = 'ff'.repeat(32);
-    await expect(service.authenticate()).rejects.toThrow('Nenhuma credencial encontrada');
+    const stored = await service.authenticate();
+    expect(stored.vcHash).toBe(registeredHash);
+    expect(await service.getStoredHashes()).toContain(registeredHash);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toContain(
+      'https://api.example.com/public/credential/recover',
+    );
   });
 
   it('propaga cancelamento do prompt nativo', async () => {

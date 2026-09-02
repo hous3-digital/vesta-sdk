@@ -423,6 +423,11 @@ export interface PasskeyRegistrationResult {
  */
 export interface SmartEnrollParams {
   /**
+   * `authenticate` força o prompt de Passkey, inclusive em um dispositivo sem
+   * IndexedDB local. `auto` preserva a descoberta local para compatibilidade.
+   */
+  mode?: 'auto' | 'authenticate';
+  /**
    * Dados de identidade do usuário — usados apenas se nenhuma VC
    * existir no dispositivo (fluxo de novo cadastro + KYC).
    */

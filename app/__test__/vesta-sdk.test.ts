@@ -108,8 +108,12 @@ function createFetchMock(
     if (url.endsWith('/passkey/authentication/verify')) {
       return okResponse({
         verified: true, vcHash: TEST_VC_HASH, proofChallenge: 'proof-challenge',
+        recoveryToken: 'recovery-token',
         privyCustomAuthToken: null,
       });
+    }
+    if (url.endsWith('/public/credential/recover')) {
+      return okResponse({ vc: mockVC, vcHash: TEST_VC_HASH });
     }
     const next = apiResponses.shift();
     if (!next) throw new Error(`Resposta de teste ausente para ${url}`);
@@ -399,6 +403,38 @@ describe('VestaSDK', () => {
         signedTxXdr: 'signed-xdr',
         privyIdentityToken: 'privy-access-token',
       }));
+    });
+
+    it('smartEnroll em modo authenticate ignora descoberta local e usa o Passkey sincronizado', async () => {
+      const passkeyAuthenticate = jest.fn().mockResolvedValue({
+        vc: mockVC,
+        vcHash: TEST_VC_HASH,
+        storedAt: new Date().toISOString(),
+        passkeyCredentialId: 'synced-passkey-id',
+        challengeUsed: 'proof-challenge',
+      });
+      const prepare = jest.fn().mockResolvedValue(mockPrepareResponse);
+      const submitSigned = jest.fn().mockResolvedValue(mockGenerateResponse);
+      const internals = sdk as unknown as {
+        passkey: { authenticate: jest.Mock };
+        proofs: { prepare: jest.Mock; submitSigned: jest.Mock };
+      };
+      internals.passkey = { authenticate: passkeyAuthenticate };
+      internals.proofs = { prepare, submitSigned };
+
+      const result = await sdk.smartEnroll({
+        mode: 'authenticate',
+        userData: {
+          cpf: '12345678900', fullName: 'João da Silva', birthDate: '1990-03-15',
+          kycLevel: 'complete', kycMethod: 'biometric_plus_document',
+        },
+        privateInputs: { cpf: '12345678900', birthDate: '19900315', fullName: 'JOAO SILVA' },
+        verifierId: 'verifier_bradesco',
+        minKycLevel: 2,
+      });
+
+      expect(passkeyAuthenticate).toHaveBeenCalledTimes(1);
+      expect(result).toEqual(expect.objectContaining({ authenticated: true, isNewUser: false }));
     });
   });
 

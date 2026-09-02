@@ -411,6 +411,21 @@ export class VestaSDK {
   }
 
   private async _smartEnroll(params: SmartEnrollParams): Promise<SmartEnrollResult> {
+    if (params.mode === 'authenticate') {
+      const validation = await this._validateCredential({
+        privateInputs: params.privateInputs,
+        verifierId: params.verifierId,
+        minKycLevel: params.minKycLevel,
+      });
+      return {
+        authenticated: validation.verified,
+        isNewUser: false,
+        vcHash: validation.attestation.vcHash,
+        txHash: validation.stellar.txHash,
+        mock: validation.stellar.mock,
+      };
+    }
+
     // Confere se há VC local que ESTÁ registrada no backend do ambiente atual.
     // VCs locais emitidas contra outro ambiente (ex.: testnet quando estamos
     // em mainnet) são tratadas como inexistentes — o fluxo de novo usuário é
