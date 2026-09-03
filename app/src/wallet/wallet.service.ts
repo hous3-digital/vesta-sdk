@@ -3,33 +3,72 @@ import { PRIVY_APP_ID, PRIVY_PLACEHOLDER } from './privy.config.generated';
 export interface PrivyAuthResult {
   userId: string;
   walletAddress: string;
-  identityToken: string;
+  accessToken: string;
 }
 
-/**
- * Wallet service do SDK — encapsula o Privy browser SDK em modo headless.
- *
- * Responsabilidades:
- * - Inicializar Privy com o appId injetado em build time (gitignored).
- * - Autenticar o usuário via Passkey (mesma ceremony WebAuthn já usada para descriptografar a VC).
- * - Assinar XDR de tx Stellar usando a wallet embedada do usuário.
- *
- * Esta classe é resiliente à ausência de configuração: quando o appId é um
- * placeholder (build sem Privy), `isAvailable()` retorna false e todas as
- * operações lançam erro explícito. O VestaSDK então cai no fluxo legado.
- */
+interface StellarWalletAccount {
+  id: string;
+  address: string;
+  chain_type: 'stellar';
+  type: 'wallet';
+}
+
+interface AuthenticatedPrivyUser {
+  user: {
+    id: string;
+    linked_accounts?: Array<Record<string, unknown>>;
+    linkedAccounts?: Array<Record<string, unknown>>;
+  };
+}
+
+interface PrivyClientLike {
+  app: { appId: string };
+  auth: {
+    customProvider: {
+      syncWithToken: (token: string, options?: unknown, mode?: string) => Promise<AuthenticatedPrivyUser>;
+    };
+  };
+  embeddedWallet: {
+    getURL: () => string;
+    onMessage: (event: unknown) => void;
+    ping: (timeoutMs: number) => Promise<boolean>;
+    signWithUserSigner: (input: { message: string }) => Promise<{ signature: string }>;
+  };
+  fetchPrivyRoute: (...args: unknown[]) => Promise<unknown>;
+  getCompiledPath: (...args: unknown[]) => string;
+  getAccessToken: () => Promise<string | null>;
+  initialize: () => Promise<void>;
+  setMessagePoster: (poster: {
+    postMessage: (message: unknown, targetOrigin: string, transfer?: Transferable) => void;
+    reload: () => void;
+  }) => void;
+}
+
+interface PrivyModuleLike {
+  default: new (options: { appId: string; storage: Storage }) => PrivyClientLike;
+  LocalStorage: new () => Storage;
+  rawSign: (
+    context: {
+      fetchPrivyRoute: PrivyClientLike['fetchPrivyRoute'];
+      getCompiledPath: PrivyClientLike['getCompiledPath'];
+      app: { appId: string };
+    },
+    sign: (input: { message: string }) => Promise<{ signature: string }>,
+    input: { wallet_id: string; params: { hash: `0x${string}` } },
+  ) => Promise<{ data: { signature: `0x${string}`; encoding: 'hex' } }>;
+}
+
+/** Integração headless Privy mantida no pacote principal e carregada sob demanda. */
 export class WalletService {
-  private privy: unknown | null = null;
+  private privy: PrivyClientLike | null = null;
+  private privyModule: PrivyModuleLike | null = null;
+  private wallet: StellarWalletAccount | null = null;
   private initPromise: Promise<void> | null = null;
 
   public isAvailable(): boolean {
     return !!PRIVY_APP_ID && PRIVY_APP_ID !== PRIVY_PLACEHOLDER;
   }
 
-  /**
-   * Inicializa o cliente Privy. Lazy + idempotente — múltiplas chamadas
-   * compartilham a mesma promise.
-   */
   public async initialize(): Promise<void> {
     if (!this.isAvailable()) {
       throw new Error(
@@ -40,106 +79,121 @@ export class WalletService {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async (): Promise<void> => {
-      // Dynamic import + untyped resolution: the @privy-io/js-sdk-core API
-      // surface is in flux (Privy is still iterating on Stellar support). We
-      // intentionally avoid baking in a specific export shape; instead, we
-      // probe common entry points (PrivyClient, Privy, default) and let the
-      // first one that's a constructor win. Runtime will throw a clear error
-      // if none match — calling code falls back to the legacy flow.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mod = (await import('@privy-io/js-sdk-core')) as unknown as Record<string, any>;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const PrivyCtor: any = mod.PrivyClient ?? mod.Privy ?? mod.default;
-      if (typeof PrivyCtor !== 'function') {
-        throw new Error(
-          'WalletService: nenhum construtor Privy encontrado em @privy-io/js-sdk-core. ' +
-            'Verifique a versão instalada e o nome do export.',
-        );
-      }
-      this.privy = new PrivyCtor({
-        appId: PRIVY_APP_ID,
-        // Headless: sem UI, sem prompts adicionais. Auth é via custom token.
-        embeddedWallets: {
-          createOnLogin: 'all-users',
-          showWalletUIs: false,
-        },
-      });
+      const mod = (await import('./privy-runtime')) as unknown as PrivyModuleLike;
+      const privy = new mod.default({ appId: PRIVY_APP_ID, storage: new mod.LocalStorage() });
+      await privy.initialize();
+      await this.attachSecureIframe(privy);
+      this.privyModule = mod;
+      this.privy = privy;
     })();
 
-    return this.initPromise;
+    try {
+      await this.initPromise;
+    } catch (cause) {
+      this.initPromise = null;
+      throw cause;
+    }
   }
 
-  /**
-   * Autentica via Passkey já validada localmente. O passkeyCredentialId
-   * funciona como chave externa (custom auth) — Privy gera/recupera a wallet
-   * Stellar vinculada a esse ID.
-   *
-   * Retorna o identity token que deve ser enviado ao backend (via
-   * /public/proof/submit-signed) para que o backend valide a assinatura
-   * server-side.
-   */
-  public async authenticateWithPasskey(passkeyCredentialId: string): Promise<PrivyAuthResult> {
+  public async authenticateWithCustomAuthToken(customAuthToken: string): Promise<PrivyAuthResult> {
     await this.initialize();
     if (!this.privy) throw new Error('Privy não inicializado');
-
-    // A chave externa identifica o usuário no Privy de forma determinística.
-    // Privy gera (ou recupera) uma wallet Stellar vinculada a esse subject.
-    const privyClient = this.privy as {
-      loginWithCustomAuthToken: (token: string) => Promise<{ user: { id: string }; identityToken: string }>;
-      getEmbeddedStellarWallet: () => Promise<{ address: string } | null>;
-    };
-
-    const customToken = await this.buildCustomAuthToken(passkeyCredentialId);
-    const session = await privyClient.loginWithCustomAuthToken(customToken);
-
-    const wallet = await privyClient.getEmbeddedStellarWallet();
-    if (!wallet?.address) {
-      throw new Error('Privy não retornou wallet Stellar — verificar configuração do app');
+    if (!customAuthToken || customAuthToken.split('.').length !== 3) {
+      throw new Error('Token Privy custom-auth inválido');
     }
 
-    return {
-      userId: session.user.id,
-      walletAddress: wallet.address,
-      identityToken: session.identityToken,
-    };
+    const session = await this.privy.auth.customProvider.syncWithToken(
+      customAuthToken,
+      undefined,
+      'no-signup',
+    );
+    const wallet = this.findStellarWallet(session.user);
+    if (!wallet) throw new Error('Privy não retornou a wallet Stellar pré-criada para o usuário');
+
+    const accessToken = await this.privy.getAccessToken();
+    if (!accessToken) throw new Error('Privy não retornou access token após custom auth');
+    this.wallet = wallet;
+
+    return { userId: session.user.id, walletAddress: wallet.address, accessToken };
   }
 
-  /**
-   * Assina um XDR Stellar com a wallet embedada do usuário.
-   * Retorna o XDR assinado (base64) para envio ao backend.
-   */
-  public async signStellarTx(unsignedXdr: string): Promise<string> {
-    if (!this.privy) throw new Error('WalletService.signStellarTx chamado antes de authenticate');
+  public async signStellarTx(unsignedXdr: string, networkPassphrase: string): Promise<string> {
+    if (!this.privy || !this.privyModule || !this.wallet) {
+      throw new Error('WalletService.signStellarTx chamado antes de authenticate');
+    }
 
-    const privyClient = this.privy as {
-      getEmbeddedStellarWallet: () => Promise<{ signTransaction: (xdr: string) => Promise<{ signedTxXdr: string }> } | null>;
-    };
+    const { TransactionBuilder } = await import('@stellar/stellar-sdk');
+    const transaction = TransactionBuilder.fromXDR(unsignedXdr, networkPassphrase);
+    const hash = `0x${Array.from(transaction.hash(), (byte) => byte.toString(16).padStart(2, '0')).join('')}` as `0x${string}`;
+    const result = await this.privyModule.rawSign(
+      {
+        fetchPrivyRoute: this.privy.fetchPrivyRoute.bind(this.privy),
+        getCompiledPath: this.privy.getCompiledPath.bind(this.privy),
+        app: { appId: this.privy.app.appId },
+      },
+      (input) => this.privy!.embeddedWallet.signWithUserSigner(input),
+      { wallet_id: this.wallet.id, params: { hash } },
+    );
 
-    const wallet = await privyClient.getEmbeddedStellarWallet();
-    if (!wallet) throw new Error('Wallet Stellar não encontrada para o usuário autenticado');
-
-    const result = await wallet.signTransaction(unsignedXdr);
-    return result.signedTxXdr;
+    const signatureBytes = result.data.signature
+      .slice(2)
+      .match(/.{2}/g)
+      ?.map((byte) => String.fromCharCode(Number.parseInt(byte, 16)))
+      .join('');
+    if (!signatureBytes) throw new Error('Privy retornou assinatura Stellar vazia');
+    const signatureBase64 = btoa(signatureBytes);
+    transaction.addSignature(this.wallet.address, signatureBase64);
+    return transaction.toXDR();
   }
 
-  /**
-   * Constrói um token de custom auth assinado para o Privy. No fluxo headless,
-   * o "segredo" é o Passkey credential ID — o backend Vesta também usa esse
-   * mesmo ID como chave de lookup ao verificar o identity token, então a
-   * derivação é consistente em ambos os lados.
-   *
-   * Implementação simplificada: o Privy aceita custom JWTs assinados via
-   * server-side. Para browser-only, usamos um esquema mais simples: enviamos
-   * o credential ID como subject de um JWT não assinado, e o Privy aceita
-   * via configuração de "trusted custom auth" (configurada no dashboard).
-   * Consultar https://docs.privy.io/guide/server/authorization/custom-auth.
-   */
-  private async buildCustomAuthToken(passkeyCredentialId: string): Promise<string> {
-    // Esquema base64url(JSON) — Privy decodifica via `customAuth` config no dashboard.
-    const payload = {
-      sub: passkeyCredentialId,
-      iat: Math.floor(Date.now() / 1000),
+  private findStellarWallet(user: AuthenticatedPrivyUser['user']): StellarWalletAccount | null {
+    const accounts = user.linked_accounts ?? user.linkedAccounts ?? [];
+    for (const account of accounts) {
+      if (
+        account.type === 'wallet' &&
+        account.chain_type === 'stellar' &&
+        typeof account.id === 'string' &&
+        typeof account.address === 'string'
+      ) {
+        return account as unknown as StellarWalletAccount;
+      }
+    }
+    return null;
+  }
+
+  private async attachSecureIframe(privy: PrivyClientLike): Promise<void> {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      throw new Error('Privy headless requer um ambiente browser');
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.src = privy.embeddedWallet.getURL();
+    iframe.title = 'Privy secure wallet';
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.display = 'none';
+    const iframeOrigin = new URL(iframe.src).origin;
+    const onMessage = (event: MessageEvent): void => {
+      if (event.origin === iframeOrigin && event.source === iframe.contentWindow) {
+        privy.embeddedWallet.onMessage(event.data);
+      }
     };
-    return btoa(JSON.stringify(payload)).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+    window.addEventListener('message', onMessage);
+    (document.body ?? document.documentElement).appendChild(iframe);
+
+    await new Promise<void>((resolve, reject) => {
+      iframe.addEventListener('load', () => resolve(), { once: true });
+      iframe.addEventListener('error', () => reject(new Error('Falha ao carregar secure iframe Privy')), {
+        once: true,
+      });
+    });
+    if (!iframe.contentWindow) throw new Error('Secure iframe Privy sem contentWindow');
+
+    privy.setMessagePoster({
+      postMessage: (message, targetOrigin, transfer) =>
+        iframe.contentWindow!.postMessage(message, targetOrigin, transfer ? [transfer] : []),
+      reload: () => iframe.contentWindow?.location.reload(),
+    });
+    const ready = await privy.embeddedWallet.ping(10_000);
+    if (!ready) throw new Error('Secure iframe Privy não respondeu');
   }
 }
