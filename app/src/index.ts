@@ -54,6 +54,11 @@ export type {
   ZkProofDetails,
   StellarTransactionDetails,
   AttestationDetails,
+  AttestationIssuerRegistryStatus,
+  IssuerRegistryRole,
+  IssuerRegistryCommissionTerm,
+  AttestationIssuer,
+  AttestationIssuerResolutionResponse,
 
   // Passkey / Armazenamento
   StoredCredential,

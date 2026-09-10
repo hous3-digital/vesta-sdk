@@ -51,7 +51,7 @@ const mockIssueResponse: IssueCredentialResponse = {
 // ─── Helper — cria um HttpClient mockado ──────────────────────────────────────
 
 function makeHttpClient(postImpl: jest.Mock): HttpClient {
-  return { post: postImpl };
+  return { get: jest.fn(), post: postImpl };
 }
 
 // ─── Testes ───────────────────────────────────────────────────────────────────
