@@ -501,6 +501,13 @@ export interface SmartEnrollResult {
   /** Hash SHA-256 da VC emitida ou validada. */
   vcHash: string;
   /**
+   * ID da attestation gerada pela validação on-chain.
+   *
+   * Presente apenas quando uma VC existente é validada. Uma emissão nova não
+   * cria attestation até que essa VC seja usada em uma validação posterior.
+   */
+  attestationId?: string;
+  /**
    * Hash da transação Stellar (presente apenas quando `isNewUser: false`,
    * pois apenas a validação ZK gera uma TX on-chain).
    */
