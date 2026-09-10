@@ -144,6 +144,8 @@ console.log(result.isNewUser);     // true (primeiro acesso) | false (recorrente
 | `checkCredentialStatus(req)` | Consulta status de uma VC pelo `vcHash` |
 | `revokeCredential(req)` | Revoga uma credencial permanentemente |
 | `resolveAttestationIssuer(attestationId)` | Consulta o participante público e seu estado atual no registry Soroban |
+| `hasPendingPasskeyRegistration()` | Indica se uma emissão desta sessão aguarda registro da Passkey |
+| `retryPasskeyRegistration()` | Reinicia a ceremony pendente com novo challenge, sem reemitir a VC |
 | `getStoredCredential()` | Retorna a VC armazenada localmente via Passkey |
 | `submitProof(req)` | Submete prova Groth16 gerada externamente |
 | `listStoredCredentials()` | Lista os `vcHash` armazenados no dispositivo |

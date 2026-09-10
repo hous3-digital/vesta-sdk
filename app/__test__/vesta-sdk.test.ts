@@ -262,6 +262,32 @@ describe('VestaSDK', () => {
           kycMethod: 'biometric_plus_document',
         }),
       ).rejects.toThrow(/Credencial emitida.*registro do Passkey falhou/);
+      expect(sdk.hasPendingPasskeyRegistration()).toBe(true);
+    });
+
+    it('deve retomar a ceremony com novo challenge sem emitir outra credencial', async () => {
+      const register = jest
+        .fn()
+        .mockRejectedValueOnce(new VestaSDKError(400, 'Challenge expirado'))
+        .mockResolvedValueOnce({ passkeyCredentialId: 'retry-passkey-id', vcHash: TEST_VC_HASH });
+      const internals = sdk as unknown as { passkey: { register: jest.Mock } };
+      internals.passkey = { register };
+      mockFetchOnce(mockIssueApiResponse);
+
+      await expect(sdk.issueCredential({
+        cpf: '12345678900',
+        fullName: 'João da Silva',
+        birthDate: '1990-03-15',
+        kycLevel: 'complete',
+        kycMethod: 'biometric_plus_document',
+      })).rejects.toThrow('Challenge expirado');
+
+      const result = await sdk.retryPasskeyRegistration();
+
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(register).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({ passkeyCredentialId: 'retry-passkey-id', vcHash: TEST_VC_HASH });
+      expect(sdk.hasPendingPasskeyRegistration()).toBe(false);
     });
 
     it('deve propagar VestaSDKError 401 da API', async () => {

@@ -28,6 +28,11 @@ interface LocalRegisteredCredential {
   result: VerifyCredentialResponse;
 }
 
+interface PendingPasskeyRegistration {
+  vc: StoredCredential['vc'];
+  vcHash: string;
+}
+
 /**
  * Ponto de entrada principal do `@hous3-digital/vesta-sdk`.
  *
@@ -68,6 +73,7 @@ export class VestaSDK {
   private readonly attestations: AttestationsService;
   private readonly passkey: PasskeyService;
   private readonly wallet: WalletService;
+  private pendingPasskeyRegistration: PendingPasskeyRegistration | null = null;
   private _busy = false;
 
   /**
@@ -140,6 +146,10 @@ export class VestaSDK {
     req: IssueCredentialRequest,
   ): Promise<IssueCredentialResponse & PasskeyRegistrationResult> {
     const issueResponse = await this.credentials.issue(req);
+    this.pendingPasskeyRegistration = {
+      vc: issueResponse.vc,
+      vcHash: issueResponse.vcHash,
+    };
 
     let passkeyResult: PasskeyRegistrationResult;
     try {
@@ -152,7 +162,39 @@ export class VestaSDK {
       );
     }
 
+    this.pendingPasskeyRegistration = null;
     return { ...issueResponse, ...passkeyResult };
+  }
+
+  /**
+   * Indica se esta instância ainda possui uma VC recém-emitida aguardando o
+   * registro local da Passkey.
+   *
+   * O estado existe somente em memória e permite retomar a ceremony sem
+   * emitir outra credencial para o mesmo titular.
+   */
+  hasPendingPasskeyRegistration(): boolean {
+    return this.pendingPasskeyRegistration !== null;
+  }
+
+  /**
+   * Reinicia o registro da Passkey para a última VC emitida nesta instância.
+   * O backend gera um challenge novo; nenhuma nova VC é emitida.
+   *
+   * @throws {Error} Se não houver registro pendente nesta sessão.
+   * @throws {VestaSDKError} Se a nova ceremony for rejeitada pelo backend.
+   */
+  async retryPasskeyRegistration(): Promise<PasskeyRegistrationResult> {
+    return this.guard(async () => {
+      const pending = this.pendingPasskeyRegistration;
+      if (!pending) {
+        throw new Error('VestaSDK: não há registro de Passkey pendente nesta sessão.');
+      }
+
+      const result = await this.passkey.register(pending.vc, pending.vcHash);
+      this.pendingPasskeyRegistration = null;
+      return result;
+    });
   }
 
   // ─── 2. Validação on-chain ────────────────────────────────────────────────
