@@ -433,9 +433,23 @@ export class PasskeyService {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      let apiMessage = `Falha na ceremony Passkey (${response.status}).`;
+      try {
+        const errorBody = (await response.json()) as {
+          message?: string | string[];
+          error?: string;
+        };
+        if (Array.isArray(errorBody.message)) {
+          apiMessage = errorBody.message.join('; ');
+        } else {
+          apiMessage = errorBody.message ?? errorBody.error ?? apiMessage;
+        }
+      } catch {
+        // Mantém a mensagem genérica quando o backend não devolve JSON.
+      }
       throw new VestaSDKError(
         response.status,
-        `Falha na ceremony Passkey (${response.status}).`,
+        apiMessage,
       );
     }
 
