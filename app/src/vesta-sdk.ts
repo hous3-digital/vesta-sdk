@@ -422,7 +422,8 @@ export class VestaSDK {
    * **Usuário recorrente (VC existente):** Autentica via Passkey + valida on-chain.
    *
    * @param params - Dados para criação de nova VC e/ou validação da existente.
-   * @returns Resultado com status de autenticação, se é novo usuário e txHash opcional.
+   * @returns Resultado com status de autenticação, se é novo usuário e dados
+   * da validação on-chain opcionais, incluindo `attestationId`.
    * @throws {VestaSDKError} Se a API retornar erro.
    * @throws {Error} Se o usuário cancelar o prompt de Passkey.
    * @throws {Error} Se outra operação já estiver em andamento (double-click).
@@ -442,6 +443,7 @@ export class VestaSDK {
         authenticated: validation.verified,
         isNewUser: false,
         vcHash: validation.attestation.vcHash,
+        attestationId: validation.attestation.id,
         txHash: validation.stellar.txHash,
         mock: validation.stellar.mock,
       };
@@ -478,6 +480,7 @@ export class VestaSDK {
         authenticated: validation.verified,
         isNewUser: false,
         vcHash: validation.attestation.vcHash,
+        attestationId: validation.attestation.id,
         txHash: validation.stellar.txHash,
         mock: validation.stellar.mock,
       };
