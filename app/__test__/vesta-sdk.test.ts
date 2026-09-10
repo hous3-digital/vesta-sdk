@@ -466,7 +466,11 @@ describe('VestaSDK', () => {
       });
 
       expect(passkeyAuthenticate).toHaveBeenCalledTimes(1);
-      expect(result).toEqual(expect.objectContaining({ authenticated: true, isNewUser: false }));
+      expect(result).toEqual(expect.objectContaining({
+        authenticated: true,
+        isNewUser: false,
+        attestationId: mockGenerateResponse.attestation.id,
+      }));
     });
   });
 
