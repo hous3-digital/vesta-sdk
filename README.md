@@ -45,7 +45,6 @@ import { VestaSDK, VestaEnvironment } from '@hous3-digital/vesta-sdk';
 
 const sdk = new VestaSDK({
   apiKey: 'vesta_live_abc123',
-  issuerId: 'bradesco',
   environment: VestaEnvironment.PRODUCTION,
 });
 
@@ -71,6 +70,21 @@ const result = await sdk.validateCredential({
 
 console.log(result.verified); // true
 console.log(result.stellar.txHash); // hash da TX na Stellar
+```
+
+### Consultar o emissor de uma attestation
+
+Depois de uma validação on-chain, use o ID da attestation para consultar o
+participante público e o seu estado atual no registry Soroban. A resposta não
+inclui o ID interno do emissor, dados Privy ou PII.
+
+```typescript
+const issuer = await sdk.resolveAttestationIssuer('attestation_...');
+
+if (issuer.issuer.registryStatus === 'ACTIVE') {
+  console.log(issuer.issuer.did);
+  console.log(issuer.issuer.roles);
+}
 ```
 
 ---
@@ -117,7 +131,6 @@ console.log(result.isNewUser);     // true (primeiro acesso) | false (recorrente
 | Campo | Tipo | Padrão | Descrição |
 |---|---|---|---|
 | `apiKey` | `string` | — | Chave de API do integrador (obrigatório) |
-| `issuerId` | `string` | — | ID do emissor enviado nas requisições de emissão |
 | `environment` | `VestaEnvironment` | `STAGING` | Ambiente de execução |
 | `rpId` | `string` | `window.location.hostname` | Relying Party ID para WebAuthn |
 
@@ -130,6 +143,7 @@ console.log(result.isNewUser);     // true (primeiro acesso) | false (recorrente
 | `smartEnroll(params)` | Fluxo unificado: emissão ou validação conforme contexto |
 | `checkCredentialStatus(req)` | Consulta status de uma VC pelo `vcHash` |
 | `revokeCredential(req)` | Revoga uma credencial permanentemente |
+| `resolveAttestationIssuer(attestationId)` | Consulta o participante público e seu estado atual no registry Soroban |
 | `getStoredCredential()` | Retorna a VC armazenada localmente via Passkey |
 | `submitProof(req)` | Submete prova Groth16 gerada externamente |
 | `listStoredCredentials()` | Lista os `vcHash` armazenados no dispositivo |

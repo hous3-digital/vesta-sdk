@@ -1,10 +1,12 @@
 import { createHttpClient, resolveBaseUrl, VestaSDKError } from './http/client';
 import { CredentialsService } from './credentials/credentials.service';
 import { ProofsService } from './proofs/proofs.service';
+import { AttestationsService } from './attestations/attestations.service';
 import { PasskeyService } from './passkey/passkey.service';
 import { WalletService } from './wallet/wallet.service';
 import type {
   GenerateAndSubmitResponse,
+  AttestationIssuerResolutionResponse,
   IssueCredentialRequest,
   IssueCredentialResponse,
   PasskeyRegistrationResult,
@@ -63,6 +65,7 @@ interface LocalRegisteredCredential {
 export class VestaSDK {
   private readonly credentials: CredentialsService;
   private readonly proofs: ProofsService;
+  private readonly attestations: AttestationsService;
   private readonly passkey: PasskeyService;
   private readonly wallet: WalletService;
   private _busy = false;
@@ -83,6 +86,7 @@ export class VestaSDK {
     const baseUrl = resolveBaseUrl(config);
     this.credentials = new CredentialsService(http);
     this.proofs = new ProofsService(http);
+    this.attestations = new AttestationsService(http);
     this.passkey = new PasskeyService(config.rpId, baseUrl, config.apiKey);
     this.wallet = new WalletService();
   }
@@ -258,7 +262,24 @@ export class VestaSDK {
     return this.credentials.revoke(req);
   }
 
-  // ─── 5. Recuperação local via Passkey ────────────────────────────────────
+  // ─── 5. Resolução pública do emissor ────────────────────────────────────
+
+  /**
+   * Consulta o participante público responsável por uma attestation.
+   *
+   * A consulta usa o DID que foi preservado na attestation e devolve o estado
+   * atual do registry Soroban, inclusive `ACTIVE`, `SUSPENDED`, `NOT_REGISTERED`
+   * ou `DID_NOT_AVAILABLE`.
+   *
+   * @param attestationId - ID da attestation retornado pela validação on-chain.
+   * @throws {VestaSDKError} 401 para API key inválida, 404 se a attestation não
+   * existir e 503 se o registry estiver indisponível.
+   */
+  async resolveAttestationIssuer(attestationId: string): Promise<AttestationIssuerResolutionResponse> {
+    return this.attestations.resolveIssuer(attestationId);
+  }
+
+  // ─── 6. Recuperação local via Passkey ────────────────────────────────────
 
   /**
    * Autentica o usuário via Passkey e retorna a VC armazenada no dispositivo.
@@ -271,7 +292,7 @@ export class VestaSDK {
     return this.passkey.authenticate();
   }
 
-  // ─── 6. Submissão de prova externa ───────────────────────────────────────
+  // ─── 7. Submissão de prova externa ───────────────────────────────────────
 
   /**
    * Submete uma prova Groth16 já gerada externamente ao contrato Soroban.
@@ -285,7 +306,7 @@ export class VestaSDK {
     return this.proofs.submit(req);
   }
 
-  // ─── 7. Utilitários ──────────────────────────────────────────────────────
+  // ─── 8. Utilitários ──────────────────────────────────────────────────────
 
   /**
    * Verifica se o dispositivo e browser suportam WebAuthn/Passkeys.
@@ -310,7 +331,7 @@ export class VestaSDK {
     return this.passkey.getStoredHashes();
   }
 
-  // ─── 8. Smart Enroll ─────────────────────────────────────────────────────
+  // ─── 9. Smart Enroll ─────────────────────────────────────────────────────
 
   /**
    * Verifica se há alguma Credencial Verificável armazenada **localmente** no

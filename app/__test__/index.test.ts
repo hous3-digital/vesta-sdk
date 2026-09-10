@@ -26,6 +26,7 @@ describe('index exports', () => {
     expect(typeof sdk.validateCredential).toBe('function');
     expect(typeof sdk.checkCredentialStatus).toBe('function');
     expect(typeof sdk.revokeCredential).toBe('function');
+    expect(typeof sdk.resolveAttestationIssuer).toBe('function');
     expect(typeof sdk.getStoredCredential).toBe('function');
     expect(typeof sdk.submitProof).toBe('function');
     expect(typeof sdk.isPasskeySupported).toBe('function');
