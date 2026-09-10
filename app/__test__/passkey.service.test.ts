@@ -134,9 +134,13 @@ describe('PasskeyService server-verified ceremonies', () => {
     })).mockImplementationOnce(async () => ({
       ok: false,
       status: 400,
-      json: async (): Promise<Record<string, never>> => ({}),
+      json: async (): Promise<{ message: string }> => ({
+        message: 'Challenge de registro inválido, expirado ou já utilizado',
+      }),
     }));
-    await expect(service.register(mockVC, 'b2'.repeat(32))).rejects.toThrow('ceremony Passkey');
+    await expect(service.register(mockVC, 'b2'.repeat(32))).rejects.toThrow(
+      'Challenge de registro inválido, expirado ou já utilizado',
+    );
     expect(await service.getStoredHashes()).not.toContain('b2'.repeat(32));
   });
 
