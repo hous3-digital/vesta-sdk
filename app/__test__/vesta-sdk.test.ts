@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto';
 import { VestaSDK } from '../src/vesta-sdk';
 import { VestaSDKError } from '../src/http/client';
 import type {
+  AttestationIssuerResolutionResponse,
   GenerateAndSubmitResponse,
   IssueCredentialResponse,
   VestaSDKConfig,
@@ -68,6 +69,19 @@ const mockGenerateResponse: GenerateAndSubmitResponse = {
   zkProof: { protocol: 'groth16', curve: 'bn128', publicSignals: ['2', '1'], proofHash: 'ph', mock: true },
   stellar: { txHash: 'MOCK_TX_001', ledger: 0, contractId: 'PLACEHOLDER', network: 'stellar:soroban:testnet', mock: true },
   attestation: { id: 'att-001', vcHash: TEST_VC_HASH, verifierId: 'verifier_bradesco', kycLevel: 'complete', userWalletAddress: null, createdAt: '2025-01-15T10:00:00Z' },
+};
+
+const mockIssuerResolution: AttestationIssuerResolutionResponse = {
+  attestationId: 'attestation_01m1z7rca0eh58z3gr34v1vgf6',
+  issuer: {
+    did: 'did:pkh:stellar:testnet:GISSUER',
+    registryStatus: 'ACTIVE',
+    active: true,
+    roles: ['TECHNICAL'],
+    payoutAddress: 'GISSUER',
+    commissionTerms: [{ role: 'TECHNICAL', shareBps: 10_000 }],
+    authorizedCredentialTypes: ['VestaKYCCredential'],
+  },
 };
 
 // ─── Mock global de fetch ──────────────────────────────────────────────────────
@@ -262,6 +276,24 @@ describe('VestaSDK', () => {
           kycMethod: 'biometric_plus_document',
         }),
       ).rejects.toBeInstanceOf(VestaSDKError);
+    });
+  });
+
+  describe('resolveAttestationIssuer()', () => {
+    it('consulta o registry público pelo ID da attestation sem iniciar um fluxo Passkey', async () => {
+      mockFetchOnce(mockIssuerResolution);
+
+      const result = await sdk.resolveAttestationIssuer(mockIssuerResolution.attestationId);
+
+      expect(result).toEqual(mockIssuerResolution);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      const [url, options] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(
+        `https://vesta.trust-staging.com/public/attestations/${mockIssuerResolution.attestationId}/issuer`,
+      );
+      expect(options.method).toBe('GET');
+      expect(options.body).toBeUndefined();
+      expect((options.headers as Record<string, string>)['X-Api-Key']).toBe('test-api-key');
     });
   });
 

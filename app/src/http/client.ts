@@ -59,6 +59,15 @@ export function resolveBaseUrl(config: VestaSDKConfig): string {
  */
 export interface HttpClient {
   /**
+   * Realiza uma requisição GET para o endpoint especificado.
+   *
+   * @param path - Caminho relativo ao apiUrl.
+   * @returns Promise com a resposta deserializada do tipo `TResponse`.
+   * @throws {VestaSDKError} Se a API retornar status não-2xx, timeout ou erro de rede.
+   */
+  get<TResponse>(path: string): Promise<TResponse>;
+
+  /**
    * Realiza uma requisição POST para o endpoint especificado.
    *
    * @param path - Caminho relativo ao apiUrl — ex: "/credentials".
@@ -84,64 +93,71 @@ export interface HttpClient {
 export function createHttpClient(config: VestaSDKConfig): HttpClient {
   const baseUrl = resolveBaseUrl(config);
 
-  return {
-    async post<TBody, TResponse>(path: string, body: TBody): Promise<TResponse> {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'X-Api-Key': config.apiKey,
-      };
+  async function request<TResponse>(
+    path: string,
+    method: 'GET' | 'POST',
+    body?: unknown,
+  ): Promise<TResponse> {
+    const headers: Record<string, string> = {
+      'X-Api-Key': config.apiKey,
+    };
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
 
-      // Timeout via AbortController — evita que o SDK trave indefinidamente
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+    // Timeout via AbortController — evita que o SDK trave indefinidamente
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
-      let response: Response;
-      try {
-        response = await fetch(`${baseUrl}${path}`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-      } catch (err) {
-        clearTimeout(timeoutId);
-        if (err instanceof DOMException && err.name === 'AbortError') {
-          throw new VestaSDKError(
-            0,
-            `Request timeout — a API não respondeu em ${DEFAULT_TIMEOUT_MS / 1000}s.`,
-          );
-        }
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err instanceof DOMException && err.name === 'AbortError') {
         throw new VestaSDKError(
           0,
-          'Erro de rede — verifique sua conexão com a internet.',
+          `Request timeout — a API não respondeu em ${DEFAULT_TIMEOUT_MS / 1000}s.`,
         );
       }
-      clearTimeout(timeoutId);
+      throw new VestaSDKError(
+        0,
+        'Erro de rede — verifique sua conexão com a internet.',
+      );
+    }
+    clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        let apiMessage = response.statusText;
-        try {
-          const errorBody = (await response.json()) as { message?: string; error?: string };
-          apiMessage = errorBody.message ?? errorBody.error ?? apiMessage;
-        } catch {
-          // corpo não é JSON — mantém statusText
-        }
-        throw new VestaSDKError(response.status, apiMessage);
-      }
-
-      let json: unknown;
+    if (!response.ok) {
+      let apiMessage = response.statusText;
       try {
-        json = await response.json();
+        const errorBody = (await response.json()) as { message?: string; error?: string };
+        apiMessage = errorBody.message ?? errorBody.error ?? apiMessage;
       } catch {
-        throw new VestaSDKError(0, 'Resposta inválida da API — corpo não é JSON.');
+        // corpo não é JSON — mantém statusText
       }
+      throw new VestaSDKError(response.status, apiMessage);
+    }
 
-      // Unwrap { data: ... } envelope used by the Vesta API interceptor
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsed = json as any;
-      return (parsed !== null && typeof parsed === 'object' && 'data' in parsed && parsed.data !== undefined
-        ? parsed.data
-        : parsed) as TResponse;
-    },
+    let json: unknown;
+    try {
+      json = await response.json();
+    } catch {
+      throw new VestaSDKError(0, 'Resposta inválida da API — corpo não é JSON.');
+    }
+
+    // Unwrap { data: ... } envelope used by the Vesta API interceptor
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parsed = json as any;
+    return (parsed !== null && typeof parsed === 'object' && 'data' in parsed && parsed.data !== undefined
+      ? parsed.data
+      : parsed) as TResponse;
+  }
+
+  return {
+    get: <TResponse>(path: string) => request<TResponse>(path, 'GET'),
+    post: <TBody, TResponse>(path: string, body: TBody) => request<TResponse>(path, 'POST', body),
   };
 }

@@ -326,6 +326,42 @@ export interface AttestationDetails {
   createdAt: string;
 }
 
+/** Estado público atual do participante no registry Soroban. */
+export type AttestationIssuerRegistryStatus =
+  | 'DID_NOT_AVAILABLE'
+  | 'NOT_REGISTERED'
+  | 'ACTIVE'
+  | 'SUSPENDED';
+
+/** Papel público que um participante exerce no ecossistema Vesta. */
+export type IssuerRegistryRole = 'TECHNICAL' | 'COMMERCIAL';
+
+/** Participação de comissão do papel, em pontos-base inteiros. */
+export interface IssuerRegistryCommissionTerm {
+  role: IssuerRegistryRole;
+  shareBps: number;
+}
+
+/**
+ * Participante público resolvido a partir do DID imutável da attestation.
+ * Não contém o identificador interno do emissor, dados Privy ou PII.
+ */
+export interface AttestationIssuer {
+  did: string | null;
+  registryStatus: AttestationIssuerRegistryStatus;
+  active: boolean;
+  roles: IssuerRegistryRole[];
+  payoutAddress: string | null;
+  commissionTerms: IssuerRegistryCommissionTerm[];
+  authorizedCredentialTypes: string[];
+}
+
+/** Resposta da consulta pública de emissor vinculada a uma attestation. */
+export interface AttestationIssuerResolutionResponse {
+  attestationId: string;
+  issuer: AttestationIssuer;
+}
+
 /**
  * Requisição da fase 1 do fluxo de validação on-chain.
  * Não exposta diretamente — usada internamente pelo SDK em `validateCredential`.
